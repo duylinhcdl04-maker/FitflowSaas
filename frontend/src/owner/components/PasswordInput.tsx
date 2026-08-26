@@ -9,6 +9,7 @@ export default function PasswordInput({
   required,
   minLength,
   autoComplete,
+  placeholder,
 }: {
   id: string;
   value: string;
@@ -16,6 +17,7 @@ export default function PasswordInput({
   required?: boolean;
   minLength?: number;
   autoComplete?: string;
+  placeholder?: string;
 }) {
   const [visible, setVisible] = useState(false);
 
@@ -27,6 +29,7 @@ export default function PasswordInput({
         required={required}
         minLength={minLength}
         autoComplete={autoComplete}
+        placeholder={placeholder}
         className={`${inputClass} pr-11`}
         value={value}
         onChange={(e) => onChange(e.target.value)}

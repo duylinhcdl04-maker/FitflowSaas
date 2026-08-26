@@ -29,7 +29,7 @@ export default function MobileNavDrawer({
   brandName = 'FitFlow',
 }: MobileNavDrawerProps) {
   const clearSession = useAuthStore((s) => s.clearSession);
-  const { theme, toggleTheme } = useThemeStore();
+  const { theme, toggle } = useThemeStore();
 
   async function handleLogout() {
     try {
@@ -130,7 +130,7 @@ export default function MobileNavDrawer({
                 <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">{userName}</span>
                 <button
                   type="button"
-                  onClick={toggleTheme}
+                  onClick={toggle}
                   className="p-2 text-zinc-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800 rounded-lg"
                 >
                   {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}

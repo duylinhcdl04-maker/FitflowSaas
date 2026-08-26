@@ -42,17 +42,19 @@ export default function QuickActionsModals({ activeAction, onClose }: QuickActio
 
   // 4. Quick PT Booking Form State
   const [ptUserId, setPtUserId] = useState('');
-  const [ptPackageId, setPtPackageId] = useState('');
+  // No UI control sets this yet — quick PT booking always falls back to 'default-package' below.
+  const [ptPackageId] = useState('');
   const [scheduledStart, setScheduledStart] = useState('');
   const [scheduledEnd, setScheduledEnd] = useState('');
   const [sessionNote, setSessionNote] = useState('');
 
   // Fetch Customers & Staff for Select Dropdowns
-  const { data: customersList = [] } = useQuery({
+  const { data: customersData } = useQuery({
     queryKey: ['manager-customers-list', ''],
     queryFn: () => getManagerCustomers(''),
     enabled: !!activeAction,
   });
+  const customersList = customersData?.items ?? [];
 
   const { data: staffList = [] } = useQuery({
     queryKey: ['manager-staff'],

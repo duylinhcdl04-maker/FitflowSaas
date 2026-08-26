@@ -1,4 +1,3 @@
-import React from 'react';
 import { ArrowRight, WarningCircle, Warning, Info } from '@phosphor-icons/react';
 
 interface SaaSActionCardProps {

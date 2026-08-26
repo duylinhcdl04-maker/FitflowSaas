@@ -35,7 +35,7 @@ export default function ManagerTopNav({
   const navigate = useNavigate();
   const clearSession = useAuthStore((s) => s.clearSession);
   const user = useAuthStore((s) => s.user);
-  const { theme, toggleTheme } = useThemeStore();
+  const { theme, toggle } = useThemeStore();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
@@ -133,7 +133,7 @@ export default function ManagerTopNav({
           {/* Theme Toggle */}
           <button
             type="button"
-            onClick={toggleTheme}
+            onClick={toggle}
             className="hidden sm:flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors"
             title="Đổi giao diện"
           >
