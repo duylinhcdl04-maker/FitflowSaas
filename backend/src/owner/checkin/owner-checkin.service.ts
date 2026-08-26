@@ -34,6 +34,8 @@ export class OwnerCheckinService {
         : {}),
     };
 
+    const branchFilter = query.branchId ? { branch_id: query.branchId } : {};
+
     const [totalToday, memberToday, guestToday, currentlyInGym, items, total] =
       await Promise.all([
         this.prisma.attendances.count({
@@ -41,6 +43,7 @@ export class OwnerCheckinService {
             tenant_id: tenantId,
             check_in_at: { gte: todayStart, lt: todayEnd },
             status: { not: 'CANCELLED' },
+            ...branchFilter,
           },
         }),
         this.prisma.attendances.count({
@@ -49,6 +52,7 @@ export class OwnerCheckinService {
             attendance_type: 'MEMBER',
             check_in_at: { gte: todayStart, lt: todayEnd },
             status: { not: 'CANCELLED' },
+            ...branchFilter,
           },
         }),
         this.prisma.attendances.count({
@@ -57,10 +61,11 @@ export class OwnerCheckinService {
             attendance_type: 'GUEST',
             check_in_at: { gte: todayStart, lt: todayEnd },
             status: { not: 'CANCELLED' },
+            ...branchFilter,
           },
         }),
         this.prisma.attendances.count({
-          where: { tenant_id: tenantId, status: 'CHECKED_IN' },
+          where: { tenant_id: tenantId, status: 'CHECKED_IN', ...branchFilter },
         }),
         this.prisma.attendances.findMany({
           where,

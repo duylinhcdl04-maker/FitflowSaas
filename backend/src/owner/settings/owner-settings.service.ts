@@ -6,6 +6,8 @@ import { UpdateCheckinConfigDto } from './dto/update-checkin-config.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { UpdatePaymentAccountDto } from './dto/update-payment-account.dto';
+import { UpdateAutoCheckoutPolicyDto } from './dto/update-auto-checkout-policy.dto';
+import { AutoCheckoutPolicyService } from '../../auto-checkout/auto-checkout-policy.service';
 
 const CHECKIN_CONFIG_KEY = 'checkin_methods';
 const DEFAULT_CHECKIN_CONFIG = { qr: true, manual: true, face: false };
@@ -26,7 +28,23 @@ export interface VietQrBank {
 export class OwnerSettingsService {
   private bankListCache: { data: VietQrBank[]; fetchedAt: number } | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly autoCheckoutPolicy: AutoCheckoutPolicyService,
+  ) {}
+
+  // Auto check-out policy (OW-xx): forgotten check-ins/guest visits get closed automatically,
+  // either N hours after check-in or at the branch's configured closing time. Actual
+  // computation/storage lives in AutoCheckoutPolicyService — this is a thin passthrough so
+  // the route surface stays consistent with the rest of Owner Settings.
+  async getAutoCheckoutPolicy(tenantId: string) {
+    return this.autoCheckoutPolicy.getPolicy(tenantId);
+  }
+
+  async updateAutoCheckoutPolicy(tenantId: string, dto: UpdateAutoCheckoutPolicyDto, actor: RequestUser) {
+    const policy = dto.mode === 'DURATION' ? { mode: 'DURATION' as const, hours: dto.hours! } : { mode: 'CLOSING_TIME' as const };
+    return this.autoCheckoutPolicy.setPolicy(tenantId, policy, actor);
+  }
 
   /** Free, public, unauthenticated — VietQR's list of NAPAS-member banks (bin/code/shortName/logo). */
   async listBanks(): Promise<VietQrBank[]> {

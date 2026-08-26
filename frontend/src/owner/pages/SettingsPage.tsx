@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CreditCard, Gear, Globe, Trash, Pencil, Check, LockKey, MagnifyingGlass, Spinner, CheckCircle, QrCode } from '@phosphor-icons/react';
+import { CreditCard, Gear, Globe, Trash, Pencil, Check, LockKey, MagnifyingGlass, Spinner, CheckCircle, QrCode, Clock } from '@phosphor-icons/react';
 import {
   getTenantBrand,
   updateTenantBrand,
@@ -12,7 +12,8 @@ import {
   lookupAccountName,
 } from '../api/settings';
 import type { PaymentAccount, VietQrBank } from '../api/settings';
-import { getCheckinConfig, updateCheckinConfig } from '../api/onboarding';
+import { getCheckinConfig, updateCheckinConfig, getAutoCheckoutPolicy, updateAutoCheckoutPolicy } from '../api/onboarding';
+import type { AutoCheckoutPolicy } from '../api/onboarding';
 import { listBranches } from '../api/branches';
 import { fetchMe, requestChangePasswordOtp, changePasswordWithOtp } from '../api/auth';
 import { apiErrorMessage } from '../api/client';
@@ -87,7 +88,10 @@ export default function SettingsPage() {
           <PaymentTab accounts={accounts} isLoading={isAccountsLoading} branches={branches} queryClient={queryClient} />
         )}
         {activeTab === 'checkin' && (
-          <CheckinTab config={checkinConfig} isLoading={isCheckinLoading} queryClient={queryClient} />
+          <div className="flex flex-col gap-6">
+            <CheckinTab config={checkinConfig} isLoading={isCheckinLoading} queryClient={queryClient} />
+            <AutoCheckoutPolicyCard />
+          </div>
         )}
         {activeTab === 'security' && (
           <SecurityTab />
@@ -708,6 +712,127 @@ function CheckinTab({ config, isLoading, queryClient }: { config: any; isLoading
         </div>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{error}</p>}
+      </div>
+    </Card>
+  );
+}
+
+// Tự động Check-out: khi lễ tân/khách quên bấm Check-out, hệ thống tự đóng lượt sau N giờ
+// hoặc đúng giờ đóng cửa chi nhánh (Branch.closing_time) — áp dụng cho cả hội viên & khách vãng lai.
+function AutoCheckoutPolicyCard() {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [mode, setMode] = useState<'DURATION' | 'CLOSING_TIME'>('DURATION');
+  const [hours, setHours] = useState(4);
+
+  const { data: policy, isLoading } = useQuery({
+    queryKey: ['owner-auto-checkout-policy'],
+    queryFn: getAutoCheckoutPolicy,
+  });
+
+  useEffect(() => {
+    if (!policy) return;
+    setMode(policy.mode);
+    if (policy.mode === 'DURATION') setHours(policy.hours);
+  }, [policy]);
+
+  const mutation = useMutation({
+    mutationFn: (next: AutoCheckoutPolicy) => updateAutoCheckoutPolicy(next),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['owner-auto-checkout-policy'], data);
+      setError(null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+    onError: (err) => setError(apiErrorMessage(err, 'Không thể cập nhật cấu hình tự động check-out')),
+  });
+
+  function handleSave() {
+    setError(null);
+    mutation.mutate(mode === 'DURATION' ? { mode: 'DURATION', hours } : { mode: 'CLOSING_TIME' });
+  }
+
+  if (isLoading) return <Skeleton className="h-48 w-full max-w-2xl" />;
+
+  return (
+    <Card className="max-w-2xl">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <Clock size={18} className="text-emerald-600" />
+          <h2 className="font-display text-base font-semibold text-zinc-900 dark:text-zinc-50">Tự động Check-out</h2>
+        </div>
+        <Callout tone="info">
+          Nếu lễ tân hoặc khách quên bấm Check-out, hệ thống sẽ tự động đóng lượt theo cấu hình dưới đây —
+          áp dụng cho cả hội viên và khách vãng lai, trên toàn bộ chuỗi.
+        </Callout>
+
+        <div className="flex flex-col gap-3 mt-2">
+          <label
+            className={`flex items-start gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-colors ${
+              mode === 'DURATION'
+                ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30'
+                : 'border-stone-200 dark:border-zinc-800 hover:bg-stone-50/50 dark:hover:bg-zinc-900/30'
+            }`}
+          >
+            <input
+              type="radio"
+              name="auto-checkout-mode"
+              checked={mode === 'DURATION'}
+              onChange={() => setMode('DURATION')}
+              className="mt-1 h-4 w-4 accent-emerald-600"
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 block">Theo khoảng thời gian cố định</span>
+              <span className="text-xs text-zinc-400">Tự động check-out sau một số giờ kể từ lúc check-in</span>
+              {mode === 'DURATION' && (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={24}
+                    value={hours}
+                    onChange={(e) => setHours(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
+                    className={`${inputClass} w-24 py-1.5`}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <span className="text-xs text-zinc-500">giờ (1–24)</span>
+                </div>
+              )}
+            </div>
+          </label>
+
+          <label
+            className={`flex items-start gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-colors ${
+              mode === 'CLOSING_TIME'
+                ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30'
+                : 'border-stone-200 dark:border-zinc-800 hover:bg-stone-50/50 dark:hover:bg-zinc-900/30'
+            }`}
+          >
+            <input
+              type="radio"
+              name="auto-checkout-mode"
+              checked={mode === 'CLOSING_TIME'}
+              onChange={() => setMode('CLOSING_TIME')}
+              className="mt-1 h-4 w-4 accent-emerald-600"
+            />
+            <div>
+              <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 block">Theo giờ đóng cửa chi nhánh</span>
+              <span className="text-xs text-zinc-400">
+                Tự động check-out đúng giờ đóng cửa của chi nhánh (cấu hình ở mục Chi nhánh) trong ngày check-in
+              </span>
+            </div>
+          </label>
+        </div>
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="flex items-center gap-3 mt-1">
+          <Button onClick={handleSave} disabled={mutation.isPending} size="sm">
+            {mutation.isPending ? 'Đang lưu...' : 'Lưu cấu hình'}
+          </Button>
+          {saved && <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Đã lưu!</span>}
+        </div>
       </div>
     </Card>
   );

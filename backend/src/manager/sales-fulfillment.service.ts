@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { writeAuditLog } from '../common/utils/audit';
 import { ROLE } from '../common/types/role';
 import type { Prisma } from '../../generated/prisma/client';
+import { AutoCheckoutPolicyService } from '../auto-checkout/auto-checkout-policy.service';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -15,7 +16,10 @@ type TxClient = Prisma.TransactionClient;
  */
 @Injectable()
 export class SalesFulfillmentService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly autoCheckoutPolicy: AutoCheckoutPolicyService,
+  ) {}
 
   async finalizeMembershipSale(
     tx: TxClient,
@@ -167,8 +171,12 @@ export class SalesFulfillmentService {
     });
     if (!pkg) throw new NotFoundException('Không tìm thấy gói vé lượt');
 
-    const autoCheckoutAt = new Date();
-    autoCheckoutAt.setHours(23, 59, 59, 999);
+    const checkInAt = new Date();
+    const autoCheckoutAt = await this.autoCheckoutPolicy.computeAutoCheckoutAt(
+      params.tenantId,
+      params.branchId,
+      checkInAt,
+    );
 
     // BR-STAFF-002: Guest Visit paid -> Auto create attendance & set status = ACTIVE
     const visit = await tx.guest_visits.create({
@@ -192,7 +200,7 @@ export class SalesFulfillmentService {
         customer_id: params.customerId,
         attendance_type: 'GUEST',
         guest_visit_id: visit.id,
-        check_in_at: new Date(),
+        check_in_at: checkInAt,
         check_in_method: 'MANUAL',
         check_in_by: params.userId,
         auto_checkout_at: autoCheckoutAt,

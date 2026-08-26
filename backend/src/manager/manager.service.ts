@@ -30,6 +30,7 @@ import { MailService } from '../mail/mail.service';
 import { SalesFulfillmentService } from './sales-fulfillment.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { buildVietQrUrl, generatePaymentRef, isVietQrMethod, mapPaymentMethod } from '../common/utils/vietqr';
+import { AutoCheckoutPolicyService } from '../auto-checkout/auto-checkout-policy.service';
 
 @Injectable()
 export class ManagerService {
@@ -38,6 +39,7 @@ export class ManagerService {
     private readonly mailService: MailService,
     private readonly salesFulfillment: SalesFulfillmentService,
     private readonly realtimeGateway: RealtimeGateway,
+    private readonly autoCheckoutPolicy: AutoCheckoutPolicyService,
   ) {}
 
   /**
@@ -519,7 +521,8 @@ export class ManagerService {
     });
     if (!customer) throw new NotFoundException('Không tìm thấy thông tin hội viên');
 
-    const autoCheckoutAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // Default 4h auto checkout
+    const checkInAt = new Date();
+    const autoCheckoutAt = await this.autoCheckoutPolicy.computeAutoCheckoutAt(tenantId, branchId, checkInAt);
 
     const attendance = await this.prisma.attendances.create({
       data: {
@@ -528,7 +531,7 @@ export class ManagerService {
         customer_id: dto.customerId,
         attendance_type: 'MEMBER',
         membership_id: dto.membershipId || undefined,
-        check_in_at: new Date(),
+        check_in_at: checkInAt,
         check_in_method: 'MANUAL',
         check_in_by: user.id,
         auto_checkout_at: autoCheckoutAt,
@@ -570,18 +573,7 @@ export class ManagerService {
       },
     });
 
-    // A guest's visit is a separate record (guest_visits) from its attendance — checking
-    // out the attendance must also close out the linked visit, or Guest Visits keeps
-    // showing them as "CHECKED_IN (Đang tập)" forever.
-    if (updated.attendance_type === 'GUEST' && updated.guest_visit_id) {
-      await this.prisma.guest_visits.updateMany({
-        where: { id: updated.guest_visit_id, status: { in: ['ACTIVE', 'ON_HOLD'] } },
-        data: { status: 'COMPLETED', completed_at: new Date() },
-      });
-      this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'guestvisit:updated', {
-        guestVisitId: updated.guest_visit_id,
-      });
-    }
+    await this.syncGuestVisitAfterCheckout(updated, 'COMPLETED');
 
     await writeAuditLog(this.prisma, {
       tenantId: user.tenantId!,
@@ -596,6 +588,64 @@ export class ManagerService {
     this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'dashboard:refresh', {});
 
     return updated;
+  }
+
+  /**
+   * A guest's visit is a separate record (guest_visits) from its attendance — checking out
+   * (or undoing) the attendance must also close out the linked visit, or Guest Visits keeps
+   * showing them as still checked in forever. Shared by manualCheckout, undoCheckin, and the
+   * auto-checkout sweep (AutoCheckoutSchedulerService).
+   */
+  private async syncGuestVisitAfterCheckout(
+    attendance: { attendance_type: string; guest_visit_id: string | null; tenant_id: string; branch_id: string },
+    targetStatus: 'COMPLETED' | 'CANCELLED',
+  ) {
+    if (attendance.attendance_type !== 'GUEST' || !attendance.guest_visit_id) return;
+
+    await this.prisma.guest_visits.updateMany({
+      where: { id: attendance.guest_visit_id, status: { in: ['ACTIVE', 'ON_HOLD'] } },
+      data: {
+        status: targetStatus,
+        ...(targetStatus === 'COMPLETED' ? { completed_at: new Date() } : {}),
+      },
+    });
+    this.realtimeGateway.emitToBranch(attendance.tenant_id, attendance.branch_id, 'guestvisit:updated', {
+      guestVisitId: attendance.guest_visit_id,
+    });
+  }
+
+  /**
+   * Auto-checks-out one CHECKED_IN attendance whose auto_checkout_at has passed. Called by
+   * AutoCheckoutSchedulerService's periodic sweep — see backend/src/auto-checkout/. Silently
+   * no-ops if the attendance was already handled (manually checked out/undone) since the sweep
+   * queried it, avoiding a race with a staff action happening at the same moment.
+   */
+  async autoCheckoutAttendance(attendanceId: string): Promise<void> {
+    const attendance = await this.prisma.attendances.findUnique({ where: { id: attendanceId } });
+    if (!attendance || attendance.status !== 'CHECKED_IN') return;
+
+    const updated = await this.prisma.attendances.update({
+      where: { id: attendanceId },
+      data: {
+        status: 'CHECKED_OUT',
+        check_out_at: new Date(),
+        check_out_method: 'AUTO',
+      },
+    });
+
+    await this.syncGuestVisitAfterCheckout(updated, 'COMPLETED');
+
+    await writeAuditLog(this.prisma, {
+      tenantId: updated.tenant_id,
+      actorUserId: null,
+      actorRole: 'SYSTEM',
+      entityType: 'ATTENDANCE',
+      entityId: updated.id,
+      action: 'AUTO_CHECKOUT',
+    });
+
+    this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'attendance:updated', { attendanceId: updated.id });
+    this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'dashboard:refresh', {});
   }
 
   async undoCheckin(user: RequestUser, dto: UndoCheckinDto) {
@@ -621,17 +671,7 @@ export class ManagerService {
       },
     });
 
-    // Same as manualCheckout — undoing a guest's check-in must also close out the
-    // linked guest_visits row, or Guest Visits keeps showing them as still checked in.
-    if (updated.attendance_type === 'GUEST' && updated.guest_visit_id) {
-      await this.prisma.guest_visits.updateMany({
-        where: { id: updated.guest_visit_id, status: { in: ['ACTIVE', 'ON_HOLD'] } },
-        data: { status: 'CANCELLED' },
-      });
-      this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'guestvisit:updated', {
-        guestVisitId: updated.guest_visit_id,
-      });
-    }
+    await this.syncGuestVisitAfterCheckout(updated, 'CANCELLED');
 
     await writeAuditLog(this.prisma, {
       tenantId: user.tenantId!,

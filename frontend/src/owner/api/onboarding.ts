@@ -23,6 +23,18 @@ export function updateCheckinConfig(config: CheckinConfig) {
   return apiClient.put<CheckinConfig>('/owner/settings/checkin-config', config).then((res) => res.data);
 }
 
+// ---------- Tự động Check-out ----------
+
+export type AutoCheckoutPolicy = { mode: 'DURATION'; hours: number } | { mode: 'CLOSING_TIME' };
+
+export function getAutoCheckoutPolicy() {
+  return apiClient.get<AutoCheckoutPolicy>('/owner/settings/auto-checkout-policy').then((res) => res.data);
+}
+
+export function updateAutoCheckoutPolicy(policy: AutoCheckoutPolicy) {
+  return apiClient.put<AutoCheckoutPolicy>('/owner/settings/auto-checkout-policy', policy).then((res) => res.data);
+}
+
 // ---------- Tiến độ tổng ----------
 
 export interface OnboardingProgress {

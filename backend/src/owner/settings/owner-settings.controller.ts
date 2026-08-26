@@ -11,6 +11,7 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { UpdatePaymentAccountDto } from './dto/update-payment-account.dto';
 import { LookupAccountNameDto } from './dto/lookup-account-name.dto';
+import { UpdateAutoCheckoutPolicyDto } from './dto/update-auto-checkout-policy.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(ROLE.OWNER)
@@ -38,6 +39,20 @@ export class OwnerSettingsController {
   @Get('onboarding')
   getOnboardingProgress(@CurrentUser() actor: RequestUser) {
     return this.ownerSettingsService.getOnboardingProgress(actor.tenantId!);
+  }
+
+  // Auto check-out policy
+  @Get('auto-checkout-policy')
+  getAutoCheckoutPolicy(@CurrentUser() actor: RequestUser) {
+    return this.ownerSettingsService.getAutoCheckoutPolicy(actor.tenantId!);
+  }
+
+  @Put('auto-checkout-policy')
+  updateAutoCheckoutPolicy(
+    @Body() dto: UpdateAutoCheckoutPolicyDto,
+    @CurrentUser() actor: RequestUser,
+  ) {
+    return this.ownerSettingsService.updateAutoCheckoutPolicy(actor.tenantId!, dto, actor);
   }
 
   // Tenant brand settings
