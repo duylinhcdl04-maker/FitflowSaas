@@ -570,6 +570,19 @@ export class ManagerService {
       },
     });
 
+    // A guest's visit is a separate record (guest_visits) from its attendance — checking
+    // out the attendance must also close out the linked visit, or Guest Visits keeps
+    // showing them as "CHECKED_IN (Đang tập)" forever.
+    if (updated.attendance_type === 'GUEST' && updated.guest_visit_id) {
+      await this.prisma.guest_visits.updateMany({
+        where: { id: updated.guest_visit_id, status: { in: ['ACTIVE', 'ON_HOLD'] } },
+        data: { status: 'COMPLETED', completed_at: new Date() },
+      });
+      this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'guestvisit:updated', {
+        guestVisitId: updated.guest_visit_id,
+      });
+    }
+
     await writeAuditLog(this.prisma, {
       tenantId: user.tenantId!,
       actorUserId: user.id,
@@ -607,6 +620,18 @@ export class ManagerService {
         cancel_reason: dto.reason,
       },
     });
+
+    // Same as manualCheckout — undoing a guest's check-in must also close out the
+    // linked guest_visits row, or Guest Visits keeps showing them as still checked in.
+    if (updated.attendance_type === 'GUEST' && updated.guest_visit_id) {
+      await this.prisma.guest_visits.updateMany({
+        where: { id: updated.guest_visit_id, status: { in: ['ACTIVE', 'ON_HOLD'] } },
+        data: { status: 'CANCELLED' },
+      });
+      this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'guestvisit:updated', {
+        guestVisitId: updated.guest_visit_id,
+      });
+    }
 
     await writeAuditLog(this.prisma, {
       tenantId: user.tenantId!,

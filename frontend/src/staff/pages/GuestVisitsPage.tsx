@@ -9,6 +9,9 @@ import {
   WarningCircle,
   QrCode,
   Money,
+  SignOut,
+  XCircle,
+  Clock,
 } from '@phosphor-icons/react';
 import {
   getGuestVisits,
@@ -23,6 +26,48 @@ import FormField from '../../owner/components/FormField';
 import Modal from '../../owner/components/Modal';
 import PendingQrPaymentModal from '../../manager/components/PendingQrPaymentModal';
 import { useRealtimeInvalidate } from '../../lib/useRealtimeInvalidate';
+
+/** Mirrors guest_visits_status_check: PENDING_PAYMENT | ACTIVE | ON_HOLD | COMPLETED | CANCELLED | EXPIRED. */
+function GuestVisitStatusBadge({ status }: { status: string }) {
+  const config: Record<string, { label: string; icon: any; className: string }> = {
+    ACTIVE: {
+      label: 'CHECKED_IN (Đang tập)',
+      icon: CheckCircle,
+      className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+    },
+    ON_HOLD: {
+      label: 'ON_HOLD (Tạm hoãn)',
+      icon: PauseCircle,
+      className: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+    },
+    COMPLETED: {
+      label: 'Đã rời phòng tập',
+      icon: SignOut,
+      className: 'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300',
+    },
+    CANCELLED: {
+      label: 'Đã huỷ',
+      icon: XCircle,
+      className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+    },
+    EXPIRED: {
+      label: 'Đã hết hạn',
+      icon: XCircle,
+      className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+    },
+    PENDING_PAYMENT: {
+      label: 'Chờ thanh toán',
+      icon: Clock,
+      className: 'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300',
+    },
+  };
+  const { label, icon: Icon, className } = config[status] || config.ACTIVE;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold ${className}`}>
+      <Icon size={12} /> {label}
+    </span>
+  );
+}
 
 export default function StaffGuestVisitsPage() {
   const queryClient = useQueryClient();
@@ -182,6 +227,9 @@ export default function StaffGuestVisitsPage() {
               <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
                 {guestVisits.map((visit: any) => {
                   const isHold = visit.status === 'ON_HOLD';
+                  // Only ACTIVE/ON_HOLD visits can still be toggled — a visit whose attendance
+                  // already checked out (COMPLETED) or was undone (CANCELLED) is done, not pausable.
+                  const canToggleHold = visit.status === 'ACTIVE' || visit.status === 'ON_HOLD';
                   return (
                     <tr key={visit.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
                       <td className="py-3 px-3 font-bold text-slate-900 dark:text-white">
@@ -197,40 +245,36 @@ export default function StaffGuestVisitsPage() {
                         {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(visit.price)}
                       </td>
                       <td className="py-3 px-3">
-                        {isHold ? (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                            <PauseCircle size={12} /> ON_HOLD (Tạm hoãn)
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                            <CheckCircle size={12} /> CHECKED_IN (Đang tập)
-                          </span>
-                        )}
+                        <GuestVisitStatusBadge status={visit.status} />
                       </td>
                       <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">
                         {new Date(visit.createdAt).toLocaleTimeString('vi-VN')}
                       </td>
                       <td className="py-3 px-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenHoldModal(visit)}
-                          disabled={toggleHoldMutation.isPending}
-                          className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition ${
-                            isHold
-                              ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-                              : 'bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300'
-                          }`}
-                        >
-                          {isHold ? (
-                            <>
-                              <PlayCircle size={14} /> Resume (Tập lại)
-                            </>
-                          ) : (
-                            <>
-                              <PauseCircle size={14} /> Tạm dừng (On-Hold)
-                            </>
-                          )}
-                        </button>
+                        {canToggleHold ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenHoldModal(visit)}
+                            disabled={toggleHoldMutation.isPending}
+                            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition ${
+                              isHold
+                                ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300'
+                            }`}
+                          >
+                            {isHold ? (
+                              <>
+                                <PlayCircle size={14} /> Resume (Tập lại)
+                              </>
+                            ) : (
+                              <>
+                                <PauseCircle size={14} /> Tạm dừng (On-Hold)
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        )}
                       </td>
                     </tr>
                   );
