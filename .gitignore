@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+dist-ssr/
+
+# Prisma generated client (regenerated via `prisma generate`, not source)
+backend/generated/
+
+# Env files — never commit real secrets (DB password, JWT secret, SePay/VietQR keys, SMTP, etc.)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+
+# Claude Code local (machine-specific, not project source)
+.claude/settings.local.json
+
+# TypeScript build info
+*.tsbuildinfo
