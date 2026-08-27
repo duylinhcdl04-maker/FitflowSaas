@@ -118,6 +118,39 @@ async function seedDemoTenant(opts: {
 }
 
 async function main() {
+  const defaultRoles = [
+    { code: 'SUPER_ADMIN', name: 'Super Admin', scope: 'SYSTEM', is_system: true },
+    { code: 'OWNER', name: 'Tenant Owner', scope: 'TENANT', is_system: true },
+    { code: 'TENANT_OWNER', name: 'Tenant Owner', scope: 'TENANT', is_system: true },
+    { code: 'MANAGER', name: 'Manager', scope: 'TENANT', is_system: true },
+    { code: 'STAFF', name: 'Staff', scope: 'TENANT', is_system: true },
+    { code: 'PT', name: 'Personal Trainer', scope: 'TENANT', is_system: true },
+    { code: 'CUSTOMER', name: 'Customer', scope: 'TENANT', is_system: true },
+  ];
+
+  for (const r of defaultRoles) {
+    await prisma.roles.upsert({
+      where: { code: r.code },
+      update: {},
+      create: r,
+    });
+  }
+
+  const defaultPlans = [
+    { code: 'TRIAL', name: 'Gói Dùng Thử 14 Ngày', price: 0, trial_days: 14, is_public: true, description: 'Gói trải nghiệm dùng thử 14 ngày cho chủ phòng tập mới' },
+    { code: 'BASIC', name: 'Gói Cơ Bản', price: 490000, trial_days: 14, is_public: true, description: 'Dành cho phòng tập quy mô nhỏ' },
+    { code: 'PRO', name: 'Gói Chuyên Nghiệp', price: 990000, trial_days: 14, is_public: true, description: 'Dành cho phòng tập quy mô vừa và chuỗi chi nhánh' },
+    { code: 'ENTERPRISE', name: 'Gói Doanh Nghiệp', price: 2490000, trial_days: 30, is_public: true, description: 'Dành cho chuỗi phòng tập lớn' },
+  ];
+
+  for (const p of defaultPlans) {
+    await prisma.saasPlan.upsert({
+      where: { code: p.code },
+      update: {},
+      create: p,
+    });
+  }
+
   await seedPlatformUser({
     roleCode: 'SUPER_ADMIN',
     email: SUPER_ADMIN_EMAIL,

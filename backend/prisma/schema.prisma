@@ -703,7 +703,7 @@ model customer_pt_packages {
   session_duration_minutes Int               @default(60)
   total_sessions           Int
   used_sessions            Int               @default(0)
-  remaining_sessions       Int?              @default(dbgenerated("(total_sessions - used_sessions)"))
+  remaining_sessions       Int?              @default(0)
   start_date               DateTime          @db.Date
   expiry_date              DateTime?         @db.Date
   status                   String            @default("ACTIVE") @db.VarChar(20)
