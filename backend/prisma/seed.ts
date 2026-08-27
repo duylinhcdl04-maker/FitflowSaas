@@ -122,6 +122,7 @@ async function main() {
     { code: 'SUPER_ADMIN', name: 'Super Admin', scope: 'SYSTEM', is_system: true },
     { code: 'OWNER', name: 'Tenant Owner', scope: 'TENANT', is_system: true },
     { code: 'TENANT_OWNER', name: 'Tenant Owner', scope: 'TENANT', is_system: true },
+    { code: 'BRANCH_MANAGER', name: 'Branch Manager', scope: 'TENANT', is_system: true },
     { code: 'MANAGER', name: 'Manager', scope: 'TENANT', is_system: true },
     { code: 'STAFF', name: 'Staff', scope: 'TENANT', is_system: true },
     { code: 'PT', name: 'Personal Trainer', scope: 'TENANT', is_system: true },
