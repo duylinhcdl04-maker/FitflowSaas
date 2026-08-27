@@ -9,7 +9,7 @@
     "prebuild": "npx prisma generate",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "start": "nest start",
+    "start": "node dist/src/main.js",
     "start:dev": "nest start --watch --entryFile src/main.js",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main.js",
