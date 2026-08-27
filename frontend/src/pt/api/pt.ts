@@ -9,7 +9,7 @@ export interface PtBooking {
   customer_pt_package_id: string;
   scheduled_start: string;
   scheduled_end: string;
-  status: 'PENDING' | 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
+  status: 'PENDING' | 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
   actual_start?: string;
   actual_end?: string;
   completed_at?: string;
@@ -103,6 +103,22 @@ export async function rejectPtBooking(bookingId: string, reason?: string): Promi
 
 export async function completePtSession(bookingId: string, sessionNote?: string) {
   const { data } = await apiClient.post('/pt/sessions/complete', { bookingId, sessionNote });
+  return data;
+}
+
+export async function markPtNoShow(bookingId: string, reason?: string): Promise<PtBooking> {
+  const { data } = await apiClient.post('/pt/bookings/no-show', { bookingId, reason });
+  return data;
+}
+
+export async function createBookingByPt(payload: {
+  customerId: string;
+  customerPtPackageId: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  sessionNote?: string;
+}): Promise<PtBooking> {
+  const { data } = await apiClient.post('/pt/bookings', payload);
   return data;
 }
 

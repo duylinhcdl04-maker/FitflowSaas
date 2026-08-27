@@ -27,7 +27,7 @@ export function useBootstrapAuth() {
       } catch {
         if (!cancelled) clearSession();
       } finally {
-        if (!cancelled) setHydrating(false);
+        setHydrating(false);
       }
     }
 

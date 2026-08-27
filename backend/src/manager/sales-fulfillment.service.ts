@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { writeAuditLog } from '../common/utils/audit';
 import { ROLE } from '../common/types/role';
@@ -103,6 +103,12 @@ export class SalesFulfillmentService {
       where: { tenant_id: params.tenantId, customer_id: params.customerId, status: 'ACTIVE' },
     });
 
+    if (!activeMembership) {
+      throw new BadRequestException(
+        'Khách hàng chưa đăng ký Gói Tập Ngày (Membership). Theo quy định phòng tập, hội viên bắt buộc phải có Gói Tập Ngày đang hoạt động mới được phép đăng ký Gói Huấn Luyện PT.',
+      );
+    }
+
     const startDate = params.startDate ? new Date(params.startDate) : new Date();
     const validityDays = plan.validity_days || 60;
     const expiryDate = new Date(startDate.getTime() + validityDays * 24 * 60 * 60 * 1000);
@@ -122,7 +128,6 @@ export class SalesFulfillmentService {
         session_duration_minutes: plan.session_duration_minutes || 60,
         total_sessions: plan.session_count,
         used_sessions: 0,
-        remaining_sessions: plan.session_count,
         start_date: startDate,
         expiry_date: expiryDate,
         status: 'ACTIVE',

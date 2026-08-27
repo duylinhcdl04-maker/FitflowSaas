@@ -22,6 +22,8 @@ import {
   CreatePtPackagePlanDto,
   UpdatePtProfileDto,
   UpdateWorkingHoursDto,
+  CreatePtBookingByPtDto,
+  MarkNoShowDto,
 } from './dto/pt.dto';
 
 @Controller('pt')
@@ -44,6 +46,14 @@ export class PtController {
     return this.ptService.getSchedule(user, startDate, endDate);
   }
 
+  @Post('bookings')
+  createBookingForCustomer(
+    @CurrentUser() user: any,
+    @Body() dto: CreatePtBookingByPtDto,
+  ) {
+    return this.ptService.createBookingForCustomer(user, dto);
+  }
+
   @Post('bookings/confirm')
   confirmBooking(@CurrentUser() user: any, @Body() dto: ConfirmBookingDto) {
     return this.ptService.confirmBooking(user, dto);
@@ -52,6 +62,11 @@ export class PtController {
   @Post('bookings/reject')
   rejectBooking(@CurrentUser() user: any, @Body() dto: RejectBookingDto) {
     return this.ptService.rejectBooking(user, dto);
+  }
+
+  @Post('bookings/no-show')
+  markNoShow(@CurrentUser() user: any, @Body() dto: MarkNoShowDto) {
+    return this.ptService.markNoShow(user, dto);
   }
 
   @Post('sessions/complete')

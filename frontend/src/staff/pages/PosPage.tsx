@@ -11,6 +11,7 @@ import {
   Calendar,
   Sparkle,
   WarningCircle,
+  ShieldWarning,
   Barbell,
   Ticket,
 } from '@phosphor-icons/react';
@@ -22,6 +23,7 @@ import {
   assignPtPackage,
 } from '../../manager/api/manager';
 import { apiErrorMessage } from '../../owner/api/client';
+import { showToast } from '../../owner/utils/swal';
 import Callout from '../../owner/components/Callout';
 import Button from '../../owner/components/Button';
 import PendingQrPaymentModal from '../../manager/components/PendingQrPaymentModal';
@@ -423,6 +425,36 @@ export default function StaffPosPage() {
                   </div>
                 </div>
 
+                {/* Warning Banner if Customer has no active Membership */}
+                {packageCategory === 'PT' && !(selectedCustomer?.memberships && selectedCustomer.memberships.length > 0) && (
+                  <div className="rounded-xl bg-amber-50 border border-amber-300 p-3.5 text-xs text-amber-800 dark:bg-amber-950/60 dark:border-amber-900/60 dark:text-amber-300 space-y-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldWarning size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-xs text-amber-900 dark:text-amber-200">
+                          ⚠️ Nhắc Nhở Quy Định: Khách hàng chưa đăng ký Gói Tập Ngày!
+                        </p>
+                        <p className="mt-1 text-[11px] leading-relaxed">
+                          Theo quy định phòng tập, hội viên <strong>bắt buộc phải có Gói Tập Ngày (Membership) đang hoạt động</strong> mới được phép đăng ký Gói Huấn Luyện PT.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-amber-200/80 dark:border-amber-900/60 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Vui lòng đăng ký Gói Tập Ngày trước</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPackageCategory('MEMBERSHIP');
+                          setSelectedPackage(null);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition cursor-pointer shrink-0"
+                      >
+                        + Chuyển sang Gói Tập Ngày
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Payment Method Selector */}
                 <div>
                   <label className="text-xs font-bold text-slate-900 dark:text-white mb-2 block">
@@ -463,8 +495,15 @@ export default function StaffPosPage() {
 
                 {/* Action Submit */}
                 <Button
-                  onClick={() => sellMutation.mutate()}
-                  disabled={sellMutation.isPending}
+                  onClick={() => {
+                    const hasActiveMembership = Boolean(selectedCustomer?.memberships && selectedCustomer.memberships.length > 0);
+                    if (packageCategory === 'PT' && !hasActiveMembership) {
+                      showToast('Khách hàng chưa đăng ký gói tập ngày. Bắt buộc phải có gói tập ngày mới được phép đăng ký PT.', 'warning');
+                      return;
+                    }
+                    sellMutation.mutate();
+                  }}
+                  disabled={sellMutation.isPending || (packageCategory === 'PT' && !(selectedCustomer?.memberships && selectedCustomer.memberships.length > 0))}
                   className="w-full py-3 text-sm font-bold gap-2"
                 >
                   <CheckCircle size={18} />

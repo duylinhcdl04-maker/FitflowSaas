@@ -114,47 +114,52 @@ export default function CheckinPage() {
       ) : (
         data && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            {/* Metric 1: Tong Check-in */}
+            {/* Metric 1: Khach da den (Daily Unique Visitors) — BR-STAT-001: 1 khach = tinh 1 lan
+                du co nhieu luot check-in trong ngay. KHONG duoc nham voi tong luot ben canh. */}
             <Card className="flex flex-col justify-between p-4 bg-gradient-to-br from-white to-slate-50/80 dark:from-zinc-900 dark:to-zinc-900/60 border-slate-200/80 dark:border-zinc-800 shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-                  Tổng lượt hôm nay
+                  Khách đã đến hôm nay
                 </span>
                 <div className="h-8 w-8 rounded-xl bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 flex items-center justify-center">
-                  <IdentificationCard size={18} />
-                </div>
-              </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="font-display text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-zinc-50">
-                  {data.today.total}
-                </span>
-                <span className="text-xs text-slate-400 font-medium">lượt vào</span>
-              </div>
-            </Card>
-
-            {/* Metric 2: Hoi vien */}
-            <Card className="flex flex-col justify-between p-4 bg-gradient-to-br from-white to-blue-50/30 dark:from-zinc-900 dark:to-blue-950/20 border-slate-200/80 dark:border-zinc-800 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
-                  Hội viên chính thức
-                </span>
-                <div className="h-8 w-8 rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 flex items-center justify-center">
                   <UsersThree size={18} />
                 </div>
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="font-display text-2xl sm:text-3xl font-extrabold text-blue-900 dark:text-blue-100">
-                  {data.today.members}
+                <span className="font-display text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-zinc-50">
+                  {data.today.dailyUniqueVisitors}
                 </span>
-                <span className="text-xs text-blue-500 font-medium">lượt Member</span>
+                <span className="text-xs text-slate-400 font-medium">khách</span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Member {data.today.memberVisitors} · Guest {data.today.guestVisitors}
+              </p>
+            </Card>
+
+            {/* Metric 2: Tong luot Check-in (Total Check-in Events) — mot khach co the ra vao
+                nhieu lan, moi lan tinh rieng; khac voi so KHACH o Metric 1. */}
+            <Card className="flex flex-col justify-between p-4 bg-gradient-to-br from-white to-blue-50/30 dark:from-zinc-900 dark:to-blue-950/20 border-slate-200/80 dark:border-zinc-800 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
+                  Tổng lượt Check-in
+                </span>
+                <div className="h-8 w-8 rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 flex items-center justify-center">
+                  <IdentificationCard size={18} />
+                </div>
+              </div>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="font-display text-2xl sm:text-3xl font-extrabold text-blue-900 dark:text-blue-100">
+                  {data.today.totalCheckInEvents}
+                </span>
+                <span className="text-xs text-blue-500 font-medium">lượt vào</span>
               </div>
             </Card>
 
-            {/* Metric 3: Khach vang lai */}
+            {/* Metric 3: Khach vang lai (unique) */}
             <Card className="flex flex-col justify-between p-4 bg-gradient-to-br from-white to-purple-50/30 dark:from-zinc-900 dark:to-purple-950/20 border-slate-200/80 dark:border-zinc-800 shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">
-                  Khách vãng lai
+                  Khách vãng lai hôm nay
                 </span>
                 <div className="h-8 w-8 rounded-xl bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-300 flex items-center justify-center">
                   <UserPlus size={18} />
@@ -162,9 +167,9 @@ export default function CheckinPage() {
               </div>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="font-display text-2xl sm:text-3xl font-extrabold text-purple-900 dark:text-purple-100">
-                  {data.today.guests}
+                  {data.today.guestVisitors}
                 </span>
-                <span className="text-xs text-purple-500 font-medium">lượt Guest</span>
+                <span className="text-xs text-purple-500 font-medium">khách</span>
               </div>
             </Card>
 

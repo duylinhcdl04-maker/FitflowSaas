@@ -19,6 +19,54 @@ export class OwnerSeedService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  async clearAllDemoSeedData() {
+    this.logger.log('Bắt đầu xoá toàn bộ dữ liệu mẫu (seed demo data)...');
+
+    await this.prisma.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        ALTER TABLE attendances DISABLE TRIGGER ALL;
+        ALTER TABLE payments DISABLE TRIGGER ALL;
+        ALTER TABLE customer_pt_packages DISABLE TRIGGER ALL;
+        ALTER TABLE pt_bookings DISABLE TRIGGER ALL;
+        ALTER TABLE memberships DISABLE TRIGGER ALL;
+        ALTER TABLE customers DISABLE TRIGGER ALL;
+        ALTER TABLE pt_package_plans DISABLE TRIGGER ALL;
+        ALTER TABLE pt_profiles DISABLE TRIGGER ALL;
+        ALTER TABLE user_roles DISABLE TRIGGER ALL;
+        ALTER TABLE users DISABLE TRIGGER ALL;
+
+        DELETE FROM attendances WHERE customer_id IN (SELECT id FROM customers WHERE phone LIKE '090000%' OR customer_code LIKE 'KH-%');
+        DELETE FROM payments WHERE customer_id IN (SELECT id FROM customers WHERE phone LIKE '090000%' OR customer_code LIKE 'KH-%');
+        DELETE FROM customer_pt_packages WHERE customer_id IN (SELECT id FROM customers WHERE phone LIKE '090000%' OR customer_code LIKE 'KH-%');
+        DELETE FROM pt_bookings WHERE customer_id IN (SELECT id FROM customers WHERE phone LIKE '090000%' OR customer_code LIKE 'KH-%');
+        DELETE FROM memberships WHERE customer_id IN (SELECT id FROM customers WHERE phone LIKE '090000%' OR customer_code LIKE 'KH-%');
+        DELETE FROM customers WHERE phone LIKE '090000%' OR customer_code LIKE 'KH-%';
+        DELETE FROM notifications;
+
+        DELETE FROM pt_package_plans WHERE pt_user_id IN (SELECT id FROM users WHERE full_name = 'Nguyễn Đức Thắng');
+        DELETE FROM pt_profiles WHERE user_id IN (SELECT id FROM users WHERE full_name = 'Nguyễn Đức Thắng');
+        DELETE FROM user_roles WHERE user_id IN (SELECT id FROM users WHERE full_name = 'Nguyễn Đức Thắng');
+        DELETE FROM users WHERE full_name = 'Nguyễn Đức Thắng';
+
+        ALTER TABLE attendances ENABLE TRIGGER ALL;
+        ALTER TABLE payments ENABLE TRIGGER ALL;
+        ALTER TABLE customer_pt_packages ENABLE TRIGGER ALL;
+        ALTER TABLE pt_bookings ENABLE TRIGGER ALL;
+        ALTER TABLE memberships ENABLE TRIGGER ALL;
+        ALTER TABLE customers ENABLE TRIGGER ALL;
+        ALTER TABLE pt_package_plans ENABLE TRIGGER ALL;
+        ALTER TABLE pt_profiles ENABLE TRIGGER ALL;
+        ALTER TABLE user_roles ENABLE TRIGGER ALL;
+        ALTER TABLE users ENABLE TRIGGER ALL;
+      END $$;
+    `);
+
+    this.logger.log('Đã xoá sạch 100% dữ liệu mẫu demo khỏi CSDL!');
+
+    return { success: true };
+  }
+
   async seedDemoData(
     tenantId: string,
     ownerUserId: string,
@@ -453,7 +501,7 @@ export class OwnerSeedService {
         pt_name_snapshot: ptUser.full_name,
         price_snapshot: ptPlanActive.price,
         total_sessions: ptPlanActive.session_count,
-        used_sessions: 3,
+        used_sessions: 2,
         start_date: this.addDays(today, -8),
         expiry_date: this.addDays(today, 82),
         status: 'ACTIVE',

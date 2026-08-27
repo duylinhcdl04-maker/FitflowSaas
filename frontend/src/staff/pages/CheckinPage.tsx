@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   IdentificationCard,
@@ -11,6 +11,8 @@ import {
   SignOut,
   XCircle,
   ShieldWarning,
+  Scan,
+  SignIn,
 } from '@phosphor-icons/react';
 import {
   getManagerCustomers,
@@ -18,13 +20,22 @@ import {
   manualCheckout,
   undoCheckin,
   getCurrentlyInGym,
+  getBranchPackages,
+  qrScanCheckin,
+  type QrScanCustomer,
 } from '../../manager/api/manager';
 import { apiErrorMessage } from '../../owner/api/client';
 import Modal from '../../owner/components/Modal';
-import FormField from '../../owner/components/FormField';
+import FormField, { inputClass } from '../../owner/components/FormField';
 import Button from '../../owner/components/Button';
 import Callout from '../../owner/components/Callout';
+import MemberDetailModal from '../../manager/components/MemberDetailModal';
+import QrCameraScanner from '../components/QrCameraScanner';
 import { useRealtimeInvalidate } from '../../lib/useRealtimeInvalidate';
+
+// Cổng quét QR động của khách hàng (Customer Portal) tự tắt sau chừng này giây —
+// đủ để nhân viên liếc thấy ảnh + tên vừa quét mà không che khuất màn hình lâu.
+const QR_TOAST_DURATION_MS = 5000;
 
 export default function StaffCheckinPage() {
   const queryClient = useQueryClient();
@@ -32,6 +43,16 @@ export default function StaffCheckinPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // --- Dynamic QR scan gate ---
+  const [qrInput, setQrInput] = useState('');
+  const [qrToast, setQrToast] = useState<{ action: 'CHECKED_IN' | 'CHECKED_OUT'; customer: QrScanCustomer } | null>(null);
+  const [qrDetailCustomer, setQrDetailCustomer] = useState<QrScanCustomer | null>(null);
+
+  const { data: branchPackages = [] } = useQuery({
+    queryKey: ['staff-branch-packages'],
+    queryFn: getBranchPackages,
+  });
 
   // Undo Checkin Modal State
   const [undoModalOpen, setUndoModalOpen] = useState(false);
@@ -54,6 +75,37 @@ export default function StaffCheckinPage() {
   });
 
   useRealtimeInvalidate('attendance:updated', [['staff-currently-in-gym']]);
+
+  const qrScanMutation = useMutation({
+    mutationFn: (token: string) => qrScanCheckin(token),
+    onSuccess: (data) => {
+      setQrToast(data);
+      setQrInput('');
+      queryClient.invalidateQueries({ queryKey: ['staff-currently-in-gym'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-dashboard-overview'] });
+    },
+    onError: (err) => setError(apiErrorMessage(err, 'Mã QR không hợp lệ hoặc đã hết hạn')),
+  });
+
+  // Popup tự tắt sau QR_TOAST_DURATION_MS — đây là một timer bất đồng bộ (setTimeout),
+  // không phải đồng bộ hoá state theo props/state khác, nên đúng cách dùng effect.
+  useEffect(() => {
+    if (!qrToast) return;
+    const timer = setTimeout(() => setQrToast(null), QR_TOAST_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [qrToast]);
+
+  function handleQrSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!qrInput.trim() || qrScanMutation.isPending) return;
+    setError(null);
+    qrScanMutation.mutate(qrInput.trim());
+  }
+
+  function handleCameraDecode(text: string) {
+    setError(null);
+    qrScanMutation.mutate(text);
+  }
 
   const checkinMutation = useMutation({
     mutationFn: (customerId: string) => manualCheckin(customerId),
@@ -129,6 +181,35 @@ export default function StaffCheckinPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Search & Checkin Panel */}
         <div className="lg:col-span-6 flex flex-col gap-5">
+          {/* Cổng quét QR động — quét/dán mã từ Customer Portal, tự Check-in/Check-out */}
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/10">
+            <h2 className="font-bold text-slate-900 dark:text-white text-base mb-1 flex items-center gap-2">
+              <Scan size={20} className="text-emerald-600 dark:text-emerald-400" /> Cổng Quét QR Hội Viên
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mb-3">
+              Bật camera để tự động quét mã QR động từ app hội viên, hoặc dùng máy quét QR vật lý / dán mã thủ công bên dưới — tự động Check-in nếu đang ở ngoài, Check-out nếu đang ở trong phòng tập.
+            </p>
+
+            <QrCameraScanner onDecode={handleCameraDecode} />
+
+            <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-zinc-800" /> hoặc <span className="h-px flex-1 bg-slate-200 dark:bg-zinc-800" />
+            </div>
+
+            <form onSubmit={handleQrSubmit} className="flex gap-2">
+              <input
+                type="text"
+                className={inputClass}
+                placeholder="Máy quét vật lý / dán mã tại đây..."
+                value={qrInput}
+                onChange={(e) => setQrInput(e.target.value)}
+              />
+              <Button type="submit" disabled={qrScanMutation.isPending || !qrInput.trim()}>
+                {qrScanMutation.isPending ? 'Đang xử lý...' : 'Xác nhận'}
+              </Button>
+            </form>
+          </div>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="font-bold text-slate-900 dark:text-white text-base mb-3 flex items-center gap-2">
               <MagnifyingGlass size={20} className="text-emerald-600" /> Tra Cứu & Quét Thẻ Hội Viên
@@ -381,6 +462,66 @@ export default function StaffCheckinPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* QR scan popup — ảnh + tên + hành động vừa quét, tự tắt sau 5s, bấm vào xem chi tiết */}
+      {qrToast && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setQrDetailCustomer(qrToast.customer);
+            setQrToast(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              setQrDetailCustomer(qrToast.customer);
+              setQrToast(null);
+            }
+          }}
+          className="fixed right-4 top-20 z-[9998] w-80 cursor-pointer rounded-2xl border border-emerald-200 bg-white p-4 shadow-2xl shadow-emerald-950/10 transition hover:-translate-y-0.5 dark:border-emerald-900/50 dark:bg-zinc-900"
+        >
+          <div className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              {qrToast.customer.avatar_url ? (
+                <img
+                  src={qrToast.customer.avatar_url}
+                  alt={qrToast.customer.full_name}
+                  className="h-12 w-12 rounded-2xl object-cover"
+                />
+              ) : (
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-base font-bold text-white">
+                  {qrToast.customer.full_name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span
+                className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white text-white dark:border-zinc-900 ${
+                  qrToast.action === 'CHECKED_IN' ? 'bg-emerald-600' : 'bg-slate-500'
+                }`}
+              >
+                {qrToast.action === 'CHECKED_IN' ? <SignIn size={11} weight="bold" /> : <SignOut size={11} weight="bold" />}
+              </span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{qrToast.customer.full_name}</p>
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                {qrToast.action === 'CHECKED_IN' ? 'Vừa Check-in qua QR' : 'Vừa Check-out qua QR'}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">Nhấn để xem chi tiết hội viên</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full detail — mở từ popup quét QR */}
+      {qrDetailCustomer && (
+        <MemberDetailModal
+          isOpen={Boolean(qrDetailCustomer)}
+          onClose={() => setQrDetailCustomer(null)}
+          customer={qrDetailCustomer}
+          branchPackages={branchPackages}
+          isFaceIdEnabled={true}
+        />
       )}
     </div>
   );

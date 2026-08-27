@@ -10,9 +10,11 @@ import { SuperAdminModule } from './super-admin/super-admin.module';
 import { OwnerModule } from './owner/owner.module';
 import { ManagerModule } from './manager/manager.module';
 import { PtModule } from './pt/pt.module';
+import { CustomerModule } from './customer/customer.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { PaymentsGatewayModule } from './payments-gateway/payments-gateway.module';
 import { AutoCheckoutSchedulerModule } from './auto-checkout/auto-checkout-scheduler.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -25,9 +27,11 @@ import { AutoCheckoutSchedulerModule } from './auto-checkout/auto-checkout-sched
     OwnerModule,
     ManagerModule,
     PtModule,
+    CustomerModule,
     RealtimeModule,
     PaymentsGatewayModule,
     AutoCheckoutSchedulerModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

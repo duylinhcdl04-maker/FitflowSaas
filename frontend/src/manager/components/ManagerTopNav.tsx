@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   MagnifyingGlass,
-  Bell,
   SignOut,
   Moon,
   Sun,
@@ -13,12 +12,12 @@ import { useAuthStore } from '../../owner/store/auth-store';
 import { useThemeStore } from '../../store/theme-store';
 import { logout } from '../../owner/api/auth';
 import BrandBadge from '../../owner/components/BrandBadge';
+import NotificationBell from '../../owner/components/NotificationBell';
 import MobileNavDrawer from './MobileNavDrawer';
 
 interface ManagerTopNavProps {
   onOpenQuickSearch: () => void;
   onOpenChangePassword: () => void;
-  unreadAlertsCount?: number;
   userName?: string;
   branchName?: string;
   brandName?: string;
@@ -27,7 +26,6 @@ interface ManagerTopNavProps {
 export default function ManagerTopNav({
   onOpenQuickSearch,
   onOpenChangePassword,
-  unreadAlertsCount = 0,
   userName = 'Branch Manager',
   branchName,
   brandName = 'FitFlow',
@@ -61,7 +59,7 @@ export default function ManagerTopNav({
   return (
     <header className="h-[56px] shrink-0 border-b border-slate-200/80 bg-white/95 backdrop-blur-xl dark:border-zinc-800/80 dark:bg-zinc-900/95 sticky top-0 z-30 shadow-xs">
       {/* Container KHÔNG CÓ overflow-hidden ở cấp cha để dropdown xổ xuống mượt mà 100% */}
-      <div className="max-w-[1360px] w-full mx-auto h-full px-4 flex items-center justify-between gap-2 sm:gap-4">
+      <div className="max-w-[1680px] w-full mx-auto h-full px-4 flex items-center justify-between gap-2 sm:gap-4">
         {/* Left Section: Mobile Drawer Toggle + Dynamic Registered Brand Name */}
         <div className="flex items-center gap-3 shrink-0 overflow-hidden">
           <button
@@ -118,17 +116,7 @@ export default function ManagerTopNav({
           </button>
 
           {/* Notification Bell */}
-          <button
-            type="button"
-            onClick={onOpenQuickSearch}
-            className="relative flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors"
-            title="Thông báo"
-          >
-            <Bell size={18} />
-            {unreadAlertsCount > 0 && (
-              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white dark:ring-zinc-900" />
-            )}
-          </button>
+          <NotificationBell basePath="/manager" />
 
           {/* Theme Toggle */}
           <button

@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useBootstrapAuth } from '../owner/hooks/useBootstrapAuth';
 import RequirePtAuth from './components/RequirePtAuth';
 import PtShell from './components/PtShell';
 import PtDashboardPage from './pages/DashboardPage';
@@ -8,6 +9,8 @@ import PtPackagesPage from './pages/PackagesPage';
 import PtProfilePage from './pages/ProfilePage';
 
 export default function PtApp() {
+  useBootstrapAuth();
+
   return (
     <Routes>
       <Route element={<RequirePtAuth />}>

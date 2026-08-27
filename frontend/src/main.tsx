@@ -12,6 +12,7 @@ import OwnerApp from './owner/OwnerApp.tsx'
 import ManagerApp from './manager/ManagerApp.tsx'
 import StaffApp from './staff/StaffApp.tsx'
 import PtApp from './pt/PtApp.tsx'
+import CustomerApp from './customer/CustomerApp.tsx'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -28,6 +29,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/manager/*" element={<ManagerApp />} />
           <Route path="/staff/*" element={<StaffApp />} />
           <Route path="/pt/*" element={<PtApp />} />
+          <Route path="/customer/*" element={<CustomerApp />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

@@ -19,14 +19,15 @@ export class AuthService {
   ) {}
 
   /**
-   * Shared login for Super Admin (`user_type = PLATFORM`) and Owner/staff
-   * (`user_type = TENANT`) — Customer login is a separate future surface
-   * (Dynamic QR, not email/password) and stays excluded here.
+   * Shared login for Super Admin (`user_type = PLATFORM`), Owner/staff
+   * (`user_type = TENANT`) and Customer (`user_type = CUSTOMER`) — same
+   * email/password flow for everyone; the Customer Portal (dynamic QR) is a
+   * separate in-app surface used *after* login, not a different login method.
    */
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findFirst({
       where: {
-        user_type: { in: ['PLATFORM', 'TENANT'] },
+        user_type: { in: ['PLATFORM', 'TENANT', 'CUSTOMER'] },
         email: { equals: dto.email, mode: 'insensitive' },
       },
     });
@@ -159,7 +160,13 @@ export class AuthService {
 
     return {
       ...tokens,
-      user: { id: user.id, email: user.email, fullName: user.full_name, roles, mustChangePassword: user.must_change_password },
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.full_name,
+        roles,
+        mustChangePassword: user.must_change_password,
+      },
     };
   }
 

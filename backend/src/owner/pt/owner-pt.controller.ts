@@ -24,16 +24,24 @@ export class OwnerPtController {
   constructor(private readonly ownerPtService: OwnerPtService) {}
 
   @Get()
-  listPts(@CurrentUser() actor: RequestUser) {
-    return this.ownerPtService.listPts(actor.tenantId!);
+  listPts(
+    @Query('branchId') branchId: string | undefined,
+    @CurrentUser() actor: RequestUser,
+  ) {
+    return this.ownerPtService.listPts(actor.tenantId!, branchId);
   }
 
   @Get('packages')
   listPackagePlans(
     @Query('status') status: string | undefined,
+    @Query('branchId') branchId: string | undefined,
     @CurrentUser() actor: RequestUser,
   ) {
-    return this.ownerPtService.listPackagePlans(actor.tenantId!, status);
+    return this.ownerPtService.listPackagePlans(
+      actor.tenantId!,
+      status,
+      branchId,
+    );
   }
 
   @Patch('packages/:id/approve')

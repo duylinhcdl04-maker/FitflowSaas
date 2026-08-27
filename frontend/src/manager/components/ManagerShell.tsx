@@ -11,7 +11,7 @@ import {
   WarningCircle,
   SignOut,
 } from '@phosphor-icons/react';
-import { getManagerContext, getManagerDashboardOverview } from '../api/manager';
+import { getManagerContext } from '../api/manager';
 import { joinBranch } from '../../lib/socket';
 import { apiErrorMessage } from '../../owner/api/client';
 import { logout } from '../../owner/api/auth';
@@ -33,12 +33,6 @@ export default function ManagerShell() {
     queryKey: ['manager-context'],
     queryFn: () => getManagerContext(),
     retry: false,
-  });
-
-  const { data: overview } = useQuery({
-    queryKey: ['manager-dashboard-overview'],
-    queryFn: () => getManagerDashboardOverview(),
-    enabled: !contextError,
   });
 
   useEffect(() => {
@@ -100,8 +94,6 @@ export default function ManagerShell() {
     );
   }
 
-  const unreadAlertsCount = overview?.actionCenter.reduce((acc, curr) => acc + curr.count, 0) || 0;
-
   const todayString = new Date().toLocaleDateString('vi-VN', {
     weekday: 'long',
     day: '2-digit',
@@ -120,7 +112,6 @@ export default function ManagerShell() {
       <ManagerTopNav
         onOpenQuickSearch={() => setIsSearchOpen(true)}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
-        unreadAlertsCount={unreadAlertsCount}
         userName={context?.user.full_name}
         branchName={context?.branch.name}
         brandName={context?.tenant?.name || context?.tenant?.legalName}
@@ -128,7 +119,7 @@ export default function ManagerShell() {
 
       {/* Branch Context Bar (Sticky, 100% Mobile Clean Overflow Layout) */}
       <div className="min-h-[44px] shrink-0 border-b border-slate-200/80 bg-white dark:border-zinc-800/80 dark:bg-zinc-900/90 sticky top-[56px] z-20 py-1.5 px-3 sm:px-4">
-        <div className="max-w-[1360px] w-full mx-auto h-full flex items-center justify-between gap-2 text-xs">
+        <div className="max-w-[1680px] w-full mx-auto h-full flex items-center justify-between gap-2 text-xs">
           {/* Branch Info Pill */}
           <div className="flex items-center gap-1.5 sm:gap-2 text-slate-600 dark:text-zinc-400 overflow-hidden text-[11px] sm:text-xs">
             <Storefront size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -204,7 +195,7 @@ export default function ManagerShell() {
       </div>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-[1360px] w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 overflow-x-hidden">
+      <main className="flex-1 max-w-[1680px] w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 xl:px-8 xl:py-8 overflow-x-hidden">
         <Outlet />
       </main>
 

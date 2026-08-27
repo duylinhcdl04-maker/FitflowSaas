@@ -272,13 +272,25 @@ export default function PtDashboardPage() {
                               ? 'bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:text-zinc-300'
                               : item.status === 'SCHEDULED' || item.status === 'CONFIRMED'
                               ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              : item.status === 'PENDING'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              : item.status === 'NO_SHOW'
+                              ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                              : 'bg-stone-100 text-stone-600 dark:bg-zinc-800 dark:text-zinc-400'
                           }`}
                         >
-                          {item.status === 'COMPLETED' ? 'Đã dạy' : item.status === 'SCHEDULED' ? 'Đã lịch' : 'Chờ xác nhận'}
+                          {item.status === 'COMPLETED'
+                            ? 'Hoàn thành'
+                            : item.status === 'SCHEDULED' || item.status === 'CONFIRMED'
+                            ? 'Đã duyệt'
+                            : item.status === 'PENDING'
+                            ? 'Chờ xác nhận'
+                            : item.status === 'NO_SHOW'
+                            ? 'Vắng mặt'
+                            : 'Đã hủy'}
                         </span>
 
-                        {!isCompleted && (
+                        {(item.status === 'SCHEDULED' || item.status === 'CONFIRMED') && (
                           <button
                             type="button"
                             onClick={() => setCompleteModalBooking(item)}

@@ -4,15 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { writeAuditLog } from '../common/utils/audit';
 import { generateTempPassword } from '../common/utils/temp-password';
 import { ROLE } from '../common/types/role';
 import type { RequestUser } from '../common/types/jwt-payload';
+import type { QrTokenClaim } from '../customer/customer.service';
 import * as bcrypt from 'bcrypt';
 import {
   ManualCheckinDto,
   UndoCheckinDto,
+  QrScanCheckinDto,
   SellMembershipDto,
   ConfirmPaymentDto,
   FreezeMembershipDto,
@@ -31,6 +34,11 @@ import { SalesFulfillmentService } from './sales-fulfillment.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { buildVietQrUrl, generatePaymentRef, isVietQrMethod, mapPaymentMethod } from '../common/utils/vietqr';
 import { AutoCheckoutPolicyService } from '../auto-checkout/auto-checkout-policy.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
+function formatVnd(amount: number): string {
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+}
 
 @Injectable()
 export class ManagerService {
@@ -40,6 +48,8 @@ export class ManagerService {
     private readonly salesFulfillment: SalesFulfillmentService,
     private readonly realtimeGateway: RealtimeGateway,
     private readonly autoCheckoutPolicy: AutoCheckoutPolicyService,
+    private readonly notifications: NotificationsService,
+    private readonly jwt: JwtService,
   ) {}
 
   /**
@@ -146,6 +156,11 @@ export class ManagerService {
   }
 
   /** Resolves active assigned branch for the user. */
+  private async getBranchName(branchId: string): Promise<string> {
+    const branch = await this.prisma.branch.findUnique({ where: { id: branchId }, select: { name: true } });
+    return branch?.name ?? 'Chi nhánh';
+  }
+
   async resolveBranchId(user: RequestUser, requestedBranchId?: string): Promise<string> {
     if (!user.tenantId) throw new ForbiddenException('Tài khoản chưa thuộc về doanh nghiệp nào');
 
@@ -256,7 +271,8 @@ export class ManagerService {
 
     const currentlyInGymGuests = currentlyInGym - currentlyInGymMembers;
 
-    // 2. Today Check-ins
+    // 2. Today Check-ins — "Tổng lượt Check-in" (Total Check-in Events): mỗi lượt vào
+    // tính riêng, một khách có thể có nhiều lượt trong ngày (check-in → check-out → check-in lại).
     const todayCheckinsCount = await this.prisma.attendances.count({
       where: {
         tenant_id: tenantId,
@@ -265,6 +281,21 @@ export class ManagerService {
         status: { in: ['CHECKED_IN', 'CHECKED_OUT'] },
       },
     });
+
+    // BR-STAT-001: "Khách đã đến hôm nay" (Daily Unique Visitors) — một khách chỉ tính một
+    // lần trong ngày dù có nhiều lượt Check-in. Đây là chỉ số khác, không được gộp với
+    // todayCheckinsCount phía trên (đó là tổng SỐ LƯỢT, không phải số NGƯỜI).
+    const dailyUniqueVisitorsCount = await this.prisma.attendances
+      .groupBy({
+        by: ['customer_id'],
+        where: {
+          tenant_id: tenantId,
+          branch_id: branchId,
+          check_in_at: { gte: todayStart, lte: todayEnd },
+          status: { in: ['CHECKED_IN', 'CHECKED_OUT'] },
+        },
+      })
+      .then((rows) => rows.length);
 
     const undoCheckinsCount = await this.prisma.attendances.count({
       where: {
@@ -366,6 +397,12 @@ export class ManagerService {
         tenant_id: tenantId,
         home_branch_id: branchId,
         status: 'ACTIVE',
+        memberships: {
+          some: {
+            status: 'ACTIVE',
+            end_date: { gte: todayStart },
+          },
+        },
         attendances: {
           none: {
             check_in_at: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
@@ -374,6 +411,57 @@ export class ManagerService {
       },
     });
 
+    // Chi tiết cho từng mục hàng đợi — cho phép FE mở modal "xem chi tiết" thay vì chỉ
+    // hiện con số. Giới hạn 20 dòng/mục để tránh trả về danh sách không giới hạn.
+    const DETAIL_LIMIT = 20;
+    const [pendingPaymentsDetail, expiringMembershipsDetail, atRiskMembersDetail] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: { tenant_id: tenantId, branch_id: branchId, status: 'PENDING' },
+        take: DETAIL_LIMIT,
+        orderBy: { created_at: 'desc' },
+        include: { customers: { select: { full_name: true, phone: true } } },
+      }),
+      this.prisma.membership.findMany({
+        where: {
+          tenant_id: tenantId,
+          branch_id: branchId,
+          status: 'ACTIVE',
+          end_date: { gte: todayStart, lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) },
+        },
+        take: DETAIL_LIMIT,
+        orderBy: { end_date: 'asc' },
+        include: { customers: { select: { full_name: true, phone: true } } },
+      }),
+      this.prisma.customer.findMany({
+        where: {
+          tenant_id: tenantId,
+          home_branch_id: branchId,
+          status: 'ACTIVE',
+          memberships: {
+            some: {
+              status: 'ACTIVE',
+              end_date: { gte: todayStart },
+            },
+          },
+          attendances: { none: { check_in_at: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } } },
+        },
+        take: DETAIL_LIMIT,
+        orderBy: { created_at: 'asc' },
+        select: {
+          id: true,
+          full_name: true,
+          phone: true,
+          created_at: true,
+          memberships: {
+            where: { status: 'ACTIVE', end_date: { gte: todayStart } },
+            take: 1,
+            select: { start_date: true, package_name_snapshot: true },
+          },
+          attendances: { orderBy: { check_in_at: 'desc' }, take: 1, select: { check_in_at: true } },
+        },
+      }),
+    ]);
+
     const actionCenter = [
       {
         id: 'pending-payments',
@@ -381,6 +469,14 @@ export class ManagerService {
         title: `${pendingPaymentsCount} Giao dịch chờ xác nhận thanh toán`,
         description: 'Vui lòng kiểm tra và xác nhận thủ công nếu khách đã chuyển khoản.',
         count: pendingPaymentsCount,
+        items: pendingPaymentsDetail.map((p) => ({
+          id: p.id,
+          customerName: p.customers.full_name,
+          customerPhone: p.customers.phone,
+          amount: Number(p.total_amount),
+          method: p.method,
+          createdAt: p.created_at,
+        })),
       },
       {
         id: 'expiring-memberships',
@@ -388,6 +484,14 @@ export class ManagerService {
         title: `${expiring3DaysCount} Gói tập sẽ hết hạn trong 3 ngày tới`,
         description: 'Liên hệ tư vấn gia hạn cho hội viên.',
         count: expiring3DaysCount,
+        items: expiringMembershipsDetail.map((m) => ({
+          id: m.id,
+          customerName: m.customers.full_name,
+          customerPhone: m.customers.phone,
+          packageName: m.package_name_snapshot,
+          startDate: m.start_date,
+          endDate: m.end_date,
+        })),
       },
       {
         id: 'at-risk-members',
@@ -395,6 +499,14 @@ export class ManagerService {
         title: `${atRiskMembersCount} Hội viên chưa đi tập trên 14 ngày`,
         description: 'Cần hỗ trợ chăm sóc để hạn chế rời bỏ.',
         count: atRiskMembersCount,
+        items: atRiskMembersDetail.map((c) => ({
+          id: c.id,
+          customerName: c.full_name,
+          customerPhone: c.phone,
+          packageName: c.memberships[0]?.package_name_snapshot,
+          startDate: c.memberships[0]?.start_date ?? c.created_at,
+          lastVisitAt: c.attendances[0]?.check_in_at ?? null,
+        })),
       },
     ];
 
@@ -448,6 +560,7 @@ export class ManagerService {
         currentlyInGymMembers,
         currentlyInGymGuests,
         todayCheckins: todayCheckinsCount,
+        dailyUniqueVisitors: dailyUniqueVisitorsCount,
         undoCheckins: undoCheckinsCount,
         todayRevenue,
         newMembershipsCount,
@@ -465,6 +578,150 @@ export class ManagerService {
         packageName: m.package_name_snapshot,
         endDate: m.end_date,
       })),
+    };
+  }
+
+  private growthPct(current: number, previous: number): number | null {
+    if (previous === 0) return current > 0 ? 100 : null;
+    return Math.round(((current - previous) / previous) * 1000) / 10;
+  }
+
+  private shiftRange(from: Date, to: Date) {
+    const durationMs = to.getTime() - from.getTime();
+    return { from: new Date(from.getTime() - durationMs), to: new Date(from.getTime()) };
+  }
+
+  // "Tầng 2 · Hiệu suất theo kỳ" trên dashboard Manager — mirror của
+  // OwnerDashboardService.getRevenueChart + overview() growth calc (tenant-wide),
+  // nhưng scope theo đúng 1 chi nhánh của Manager và gộp thêm breakdown Hội
+  // viên/PT cùng lúc để FE chỉ cần 1 request cho cả 3 tab.
+  async getDashboardPerformance(
+    user: RequestUser,
+    requestedBranchId: string | undefined,
+    query: { from?: string; to?: string; groupBy?: 'day' | 'week' | 'month' },
+  ) {
+    const branchId = await this.resolveBranchId(user, requestedBranchId);
+    const tenantId = user.tenantId!;
+
+    const to = query.to ? new Date(query.to) : new Date();
+    const from = query.from
+      ? new Date(query.from)
+      : (() => {
+          const d = new Date(to);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        })();
+    const groupBy = query.groupBy ?? 'day';
+    const prevRange = this.shiftRange(from, to);
+
+    const [
+      payments,
+      prevRevenueAgg,
+      newCount,
+      renewedCount,
+      prevNewCount,
+      expiredCount,
+      atRiskCount,
+      ptBookingsInRange,
+      prevPtBookingsCount,
+    ] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: { tenant_id: tenantId, branch_id: branchId, status: 'PAID', paid_at: { gte: from, lte: to } },
+        select: { total_amount: true, paid_at: true, payment_type: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { tenant_id: tenantId, branch_id: branchId, status: 'PAID', paid_at: { gte: prevRange.from, lt: from } },
+        _sum: { total_amount: true },
+      }),
+      this.prisma.membership.count({
+        where: { tenant_id: tenantId, branch_id: branchId, created_at: { gte: from, lte: to }, previous_membership_id: null },
+      }),
+      this.prisma.membership.count({
+        where: { tenant_id: tenantId, branch_id: branchId, created_at: { gte: from, lte: to }, previous_membership_id: { not: null } },
+      }),
+      this.prisma.membership.count({
+        where: { tenant_id: tenantId, branch_id: branchId, created_at: { gte: prevRange.from, lt: from }, previous_membership_id: null },
+      }),
+      this.prisma.membership.count({
+        where: { tenant_id: tenantId, branch_id: branchId, status: 'EXPIRED', end_date: { gte: from, lte: to } },
+      }),
+      // BR: real-time "hiện tại", không phụ thuộc date range — cùng công thức với getDashboardOverview.
+      this.prisma.customer.count({
+        where: {
+          tenant_id: tenantId,
+          home_branch_id: branchId,
+          status: 'ACTIVE',
+          attendances: { none: { check_in_at: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } } },
+        },
+      }),
+      this.prisma.ptBooking.findMany({
+        where: { tenant_id: tenantId, branch_id: branchId, scheduled_start: { gte: from, lte: to } },
+        select: { status: true, pt_user_id: true },
+      }),
+      this.prisma.ptBooking.count({
+        where: { tenant_id: tenantId, branch_id: branchId, scheduled_start: { gte: prevRange.from, lt: from } },
+      }),
+    ]);
+
+    const grouped = new Map<string, number>();
+    for (const p of payments) {
+      const date = p.paid_at ?? new Date();
+      let key: string;
+      if (groupBy === 'week') {
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(date.getTime());
+        monday.setDate(diff);
+        key = monday.toISOString().slice(0, 10);
+      } else if (groupBy === 'month') {
+        key = date.toISOString().slice(0, 7);
+      } else {
+        key = date.toISOString().slice(0, 10);
+      }
+      grouped.set(key, (grouped.get(key) ?? 0) + Number(p.total_amount));
+    }
+    const trend = Array.from(grouped.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, revenue]) => ({ date, revenue }));
+
+    const totalRevenue = payments.reduce((s, p) => s + Number(p.total_amount), 0);
+    const prevRevenue = Number(prevRevenueAgg._sum.total_amount ?? 0);
+    // payments_payment_type_check chỉ cho phép MEMBERSHIP|PT_PACKAGE|GUEST_VISIT|MIXED|OTHER.
+    const bySource = {
+      membership: payments.filter((p) => p.payment_type === 'MEMBERSHIP').reduce((s, p) => s + Number(p.total_amount), 0),
+      pt: payments.filter((p) => p.payment_type === 'PT_PACKAGE').reduce((s, p) => s + Number(p.total_amount), 0),
+      guest: payments.filter((p) => p.payment_type === 'GUEST_VISIT').reduce((s, p) => s + Number(p.total_amount), 0),
+    };
+
+    const totalPtSessions = ptBookingsInRange.length;
+    const completedSessions = ptBookingsInRange.filter((b) => b.status === 'COMPLETED').length;
+    const cancelledSessions = ptBookingsInRange.filter((b) => b.status === 'CANCELLED').length;
+    const activeTrainersCount = new Set(ptBookingsInRange.map((b) => b.pt_user_id)).size;
+    const cancelRate = totalPtSessions > 0 ? Math.round((cancelledSessions / totalPtSessions) * 1000) / 10 : 0;
+
+    return {
+      range: { from, to },
+      revenue: {
+        total: totalRevenue,
+        growthPct: this.growthPct(totalRevenue, prevRevenue),
+        trend,
+        bySource,
+      },
+      members: {
+        newCount,
+        renewedCount,
+        expiredCount,
+        atRiskCount,
+        growthPct: this.growthPct(newCount, prevNewCount),
+      },
+      pt: {
+        totalSessions: totalPtSessions,
+        completedSessions,
+        cancelledSessions,
+        cancelRate,
+        activeTrainersCount,
+        growthPct: this.growthPct(totalPtSessions, prevPtBookingsCount),
+      },
     };
   }
 
@@ -521,38 +778,199 @@ export class ManagerService {
     });
     if (!customer) throw new NotFoundException('Không tìm thấy thông tin hội viên');
 
+    return this.createCheckInRecord({
+      tenantId,
+      branchId,
+      customerId: dto.customerId,
+      method: 'MANUAL',
+      checkInBy: user.id,
+      membershipId: dto.membershipId || null,
+      note: dto.note,
+    });
+  }
+
+  /**
+   * Shared "create the attendance row" body for both staff-driven manual check-in
+   * and the customer's dynamic-QR check-in (`checkInOrOutViaQr`) — auto-checkout-at
+   * computation, audit log, and realtime emit stay identical either way.
+   */
+  private async createCheckInRecord(params: {
+    tenantId: string;
+    branchId: string;
+    customerId: string;
+    method: 'MANUAL' | 'QR';
+    checkInBy?: string | null;
+    membershipId?: string | null;
+    note?: string;
+  }) {
     const checkInAt = new Date();
-    const autoCheckoutAt = await this.autoCheckoutPolicy.computeAutoCheckoutAt(tenantId, branchId, checkInAt);
+    const autoCheckoutAt = await this.autoCheckoutPolicy.computeAutoCheckoutAt(
+      params.tenantId,
+      params.branchId,
+      checkInAt,
+    );
+
+    let membershipId = params.membershipId ?? null;
+    if (!membershipId) {
+      const activeMem = await this.prisma.membership.findFirst({
+        where: {
+          tenant_id: params.tenantId,
+          customer_id: params.customerId,
+          status: { in: ['ACTIVE', 'SCHEDULED', 'FROZEN'] },
+        },
+        orderBy: { created_at: 'desc' },
+        select: { id: true },
+      });
+      if (activeMem) membershipId = activeMem.id;
+    }
 
     const attendance = await this.prisma.attendances.create({
       data: {
-        tenant_id: tenantId,
-        branch_id: branchId,
-        customer_id: dto.customerId,
+        tenant_id: params.tenantId,
+        branch_id: params.branchId,
+        customer_id: params.customerId,
         attendance_type: 'MEMBER',
-        membership_id: dto.membershipId || undefined,
+        membership_id: membershipId,
         check_in_at: checkInAt,
-        check_in_method: 'MANUAL',
-        check_in_by: user.id,
+        check_in_method: params.method,
+        check_in_by: params.checkInBy ?? null,
         auto_checkout_at: autoCheckoutAt,
         status: 'CHECKED_IN',
-        note: dto.note,
+        note: params.note,
       },
     });
 
     await writeAuditLog(this.prisma, {
-      tenantId,
-      actorUserId: user.id,
+      tenantId: params.tenantId,
+      actorUserId: params.checkInBy ?? null,
       actorRole: ROLE.BRANCH_MANAGER,
       entityType: 'ATTENDANCE',
       entityId: attendance.id,
-      action: 'MANUAL_CHECKIN',
+      action: params.method === 'QR' ? 'QR_CHECKIN' : 'MANUAL_CHECKIN',
     });
 
-    this.realtimeGateway.emitToBranch(tenantId, branchId, 'attendance:updated', { attendanceId: attendance.id });
-    this.realtimeGateway.emitToBranch(tenantId, branchId, 'dashboard:refresh', {});
+    this.realtimeGateway.emitToBranch(params.tenantId, params.branchId, 'attendance:updated', { attendanceId: attendance.id });
+    this.realtimeGateway.emitToBranch(params.tenantId, params.branchId, 'dashboard:refresh', {});
 
     return attendance;
+  }
+
+  /**
+   * Consumes a customer's dynamic QR (see customer.service.ts#getQrToken) at a staff/kiosk
+   * scan station. Toggles: checks the member out if they're currently CHECKED_IN, otherwise
+   * checks them in — enforcing BR-CUST-002 (HOME_BRANCH-scoped membership can't check in at
+   * a different branch) and BR-CUST-004 (token must be fresh and match the customer's current
+   * qr_token_version, so an old screenshotted QR can't be replayed).
+   */
+  async checkInOrOutViaQr(user: RequestUser, dto: QrScanCheckinDto) {
+    const tenantId = user.tenantId!;
+    const branchId = await this.resolveBranchId(user);
+
+    let claim: QrTokenClaim;
+    try {
+      claim = await this.jwt.verifyAsync<QrTokenClaim>(dto.token, {
+        secret: process.env.JWT_ACCESS_SECRET,
+      });
+    } catch {
+      throw new BadRequestException('Mã QR đã hết hạn hoặc không hợp lệ, vui lòng thử lại');
+    }
+
+    // Fetch everything the staff-side scan popup / "xem chi tiết" (MemberDetailModal)
+    // needs in one round trip — memberships included so BR-CUST-002 below re-uses
+    // this same query instead of a second one.
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: claim.sub, tenant_id: tenantId },
+      include: {
+        memberships: {
+          where: { status: { in: ['SCHEDULED', 'ACTIVE', 'FROZEN'] } },
+          select: {
+            id: true,
+            package_name_snapshot: true,
+            status: true,
+            start_date: true,
+            end_date: true,
+            branch_id: true,
+            branch_access_scope_snapshot: true,
+          },
+          orderBy: { created_at: 'desc' },
+        },
+      },
+    });
+    if (!customer) throw new NotFoundException('Không tìm thấy hội viên ứng với mã QR này');
+    if (customer.qr_token_version !== claim.v) {
+      throw new BadRequestException('Mã QR đã cũ, vui lòng mở lại ứng dụng để lấy mã mới');
+    }
+
+    // Same shape as ManagerService.getCustomers()'s list items / what
+    // MemberDetailModal.tsx already expects, so the scan popup can pass this straight
+    // through to "Xem chi tiết" with no extra fetch.
+    const customerDetail = {
+      id: customer.id,
+      customer_code: customer.customer_code,
+      full_name: customer.full_name,
+      phone: customer.phone,
+      email: customer.email,
+      gender: customer.gender,
+      avatar_url: customer.avatar_url,
+      status: customer.status,
+      date_of_birth: customer.date_of_birth,
+      address: customer.address,
+      emergency_contact_name: customer.emergency_contact_name,
+      emergency_contact_phone: customer.emergency_contact_phone,
+      face_consent_at: customer.face_consent_at,
+      memberships: customer.memberships,
+    };
+
+    const existingCheckin = await this.prisma.attendances.findFirst({
+      where: { tenant_id: tenantId, customer_id: customer.id, status: 'CHECKED_IN' },
+    });
+
+    if (existingCheckin) {
+      const updated = await this.prisma.attendances.update({
+        where: { id: existingCheckin.id },
+        data: {
+          status: 'CHECKED_OUT',
+          check_out_at: new Date(),
+          check_out_method: 'QR',
+          check_out_by: user.id,
+        },
+      });
+
+      await this.syncGuestVisitAfterCheckout(updated, 'COMPLETED');
+      await writeAuditLog(this.prisma, {
+        tenantId,
+        actorUserId: user.id,
+        actorRole: ROLE.BRANCH_MANAGER,
+        entityType: 'ATTENDANCE',
+        entityId: updated.id,
+        action: 'QR_CHECKOUT',
+      });
+
+      this.realtimeGateway.emitToBranch(tenantId, updated.branch_id, 'attendance:updated', { attendanceId: updated.id });
+      this.realtimeGateway.emitToBranch(tenantId, updated.branch_id, 'dashboard:refresh', {});
+
+      return { action: 'CHECKED_OUT' as const, attendance: updated, customer: customerDetail };
+    }
+
+    // BR-CUST-002: a HOME_BRANCH-scoped membership can only check in at its own branch.
+    const membership = customer.memberships.find((m) => m.status === 'ACTIVE' || m.status === 'FROZEN');
+    if (!membership) {
+      throw new BadRequestException('Hội viên chưa có gói tập đang hoạt động');
+    }
+    if (membership.branch_access_scope_snapshot === 'HOME_BRANCH' && membership.branch_id !== branchId) {
+      throw new ForbiddenException('ACCESS_DENIED: Gói tập của hội viên chỉ áp dụng tại chi nhánh đã đăng ký');
+    }
+
+    const attendance = await this.createCheckInRecord({
+      tenantId,
+      branchId,
+      customerId: customer.id,
+      method: 'QR',
+      checkInBy: user.id,
+      membershipId: membership.id,
+    });
+
+    return { action: 'CHECKED_IN' as const, attendance, customer: customerDetail };
   }
 
   async manualCheckout(user: RequestUser, attendanceId: string) {
@@ -646,6 +1064,24 @@ export class ManagerService {
 
     this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'attendance:updated', { attendanceId: updated.id });
     this.realtimeGateway.emitToBranch(updated.tenant_id, updated.branch_id, 'dashboard:refresh', {});
+
+    // Doc §2.4 "Nhận thông báo tự động khi Auto Check-out" — only fires when the
+    // customer actually has a Customer Portal account (user_id set).
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: updated.customer_id },
+      select: { user_id: true },
+    });
+    if (customer?.user_id) {
+      await this.notifications.notifyCustomerUser({
+        tenantId: updated.tenant_id,
+        recipientUserId: customer.user_id,
+        eventCode: 'AUTO_CHECKOUT',
+        entityId: updated.id,
+        title: 'Bạn đã được tự động check-out',
+        body: 'Hệ thống đã tự động check-out cho bạn theo chính sách của phòng tập.',
+        targetPath: '/attendance',
+      });
+    }
   }
 
   async undoCheckin(user: RequestUser, dto: UndoCheckinDto) {
@@ -780,6 +1216,7 @@ export class ManagerService {
               id: true,
               package_name_snapshot: true,
               status: true,
+              start_date: true,
               end_date: true,
             },
           },
@@ -1031,13 +1468,17 @@ export class ManagerService {
   async getBranchAuditLogs(user: RequestUser) {
     const branchId = await this.resolveBranchId(user);
 
-    return this.prisma.auditLog.findMany({
+    const rows = await this.prisma.auditLog.findMany({
       where: {
         tenant_id: user.tenantId!,
       },
       take: 50,
       orderBy: { occurred_at: 'desc' },
     });
+
+    // AuditLog.id is a BigInt (autoincrement) — stringify it, Express/JSON can't serialize
+    // BigInt (same fix already applied in super-admin/audit-logs/audit-logs.service.ts).
+    return rows.map((row) => ({ ...row, id: row.id.toString() }));
   }
 
   async changePassword(user: RequestUser, dto: ManagerChangePasswordDto) {
@@ -1083,11 +1524,75 @@ export class ManagerService {
       throw new BadRequestException('Số điện thoại này đã được đăng ký hội viên');
     }
 
+    if (dto.email) {
+      const existingEmailCustomer = await this.prisma.customer.findFirst({
+        where: { tenant_id: tenantId, email: { equals: dto.email, mode: 'insensitive' } },
+      });
+      if (existingEmailCustomer) {
+        throw new BadRequestException('Email này đã được đăng ký hội viên');
+      }
+    }
+
+    // Check if phone or email belongs to an existing Staff/PT/Manager/Owner user account
+    const existingStaffPhone = await this.prisma.user.findFirst({
+      where: { tenant_id: tenantId, phone: dto.phone },
+    });
+    if (existingStaffPhone) {
+      throw new BadRequestException('Số điện thoại này thuộc về tài khoản Nhân sự / PT của phòng tập, không thể đăng ký thành Khách hàng');
+    }
+
+    if (dto.email) {
+      const existingStaffEmail = await this.prisma.user.findFirst({
+        where: { email: { equals: dto.email, mode: 'insensitive' } },
+      });
+      if (existingStaffEmail) {
+        throw new BadRequestException('Email này thuộc về tài khoản Nhân sự / PT của phòng tập, không thể đăng ký thành Khách hàng');
+      }
+    }
+
     const customerCode = `KH-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    let createdUserId: string | null = null;
+    let tempPassword: string | null = null;
+
+    if (dto.email && dto.email.trim()) {
+      tempPassword = generateTempPassword();
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      const roleRecord = await this.prisma.roles.findUnique({
+        where: { code: 'CUSTOMER' },
+      });
+
+      const newUser = await this.prisma.user.create({
+        data: {
+          tenant_id: tenantId,
+          user_type: 'CUSTOMER',
+          email: dto.email.trim(),
+          phone: dto.phone || null,
+          password_hash: passwordHash,
+          full_name: dto.fullName,
+          gender: dto.gender || 'MALE',
+          status: 'ACTIVE',
+          must_change_password: true,
+        },
+      });
+      createdUserId = newUser.id;
+
+      if (roleRecord) {
+        await this.prisma.user_roles.create({
+          data: {
+            user_id: newUser.id,
+            role_id: roleRecord.id,
+            tenant_id: tenantId,
+          },
+        });
+      }
+    }
 
     const customer = await this.prisma.customer.create({
       data: {
         tenant_id: tenantId,
+        user_id: createdUserId,
         home_branch_id: branchId,
         customer_code: customerCode,
         full_name: dto.fullName,
@@ -1097,6 +1602,21 @@ export class ManagerService {
         status: 'ACTIVE',
       },
     });
+
+    if (dto.email && dto.email.trim() && tempPassword) {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, legal_name: true },
+      });
+      const tenantName = tenant?.name || tenant?.legal_name || 'FitFlow';
+
+      await this.mailService.sendCustomerAccountCredentialsEmail(
+        dto.email.trim(),
+        dto.fullName,
+        tenantName,
+        tempPassword,
+      );
+    }
 
     await writeAuditLog(this.prisma, {
       tenantId,
@@ -1108,6 +1628,107 @@ export class ManagerService {
     });
 
     return customer;
+  }
+
+  async resetCustomerPassword(user: RequestUser, customerId: string) {
+    const tenantId = user.tenantId!;
+    const customer = await this.prisma.customer.findFirst({
+      where: { tenant_id: tenantId, id: customerId },
+    });
+    if (!customer) {
+      throw new NotFoundException('Không tìm thấy thông tin hội viên');
+    }
+    if (!customer.email || !customer.email.trim()) {
+      throw new BadRequestException('Hội viên chưa có thông tin Email. Vui lòng cập nhật Email cho hội viên trước khi cấp lại mật khẩu.');
+    }
+
+    const tempPassword = generateTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+    let userId = customer.user_id;
+
+    if (!userId) {
+      const existingUser = await this.prisma.user.findFirst({
+        where: { email: { equals: customer.email.trim(), mode: 'insensitive' } },
+      });
+      if (existingUser) {
+        userId = existingUser.id;
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            password_hash: passwordHash,
+            must_change_password: true,
+            status: 'ACTIVE',
+          },
+        });
+      } else {
+        const role = await this.prisma.roles.findUnique({
+          where: { code: 'CUSTOMER' },
+        });
+        const newUser = await this.prisma.user.create({
+          data: {
+            tenant_id: tenantId,
+            user_type: 'CUSTOMER',
+            email: customer.email.trim(),
+            phone: customer.phone || null,
+            password_hash: passwordHash,
+            full_name: customer.full_name,
+            gender: customer.gender || 'MALE',
+            status: 'ACTIVE',
+            must_change_password: true,
+          },
+        });
+        if (role) {
+          await this.prisma.user_roles.create({
+            data: {
+              user_id: newUser.id,
+              role_id: role.id,
+              tenant_id: tenantId,
+            },
+          });
+        }
+        userId = newUser.id;
+      }
+      await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: { user_id: userId },
+      });
+    } else {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          password_hash: passwordHash,
+          must_change_password: true,
+        },
+      });
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, legal_name: true },
+    });
+    const tenantName = tenant?.name || tenant?.legal_name || 'FitFlow';
+
+    await this.mailService.sendCustomerPasswordResetEmail(
+      customer.email.trim(),
+      customer.full_name,
+      tenantName,
+      tempPassword,
+    );
+
+    await writeAuditLog(this.prisma, {
+      tenantId,
+      actorUserId: user.id,
+      actorRole: ROLE.BRANCH_MANAGER,
+      entityType: 'CUSTOMER',
+      entityId: customer.id,
+      action: 'RESET_CUSTOMER_PASSWORD',
+    });
+
+    return {
+      success: true,
+      message: `Đã cấp lại mật khẩu tạm thời thành công! Mật khẩu mới đã được tự động gửi tới Gmail ${customer.email}.`,
+    };
   }
 
   async quickCreatePayment(user: RequestUser, dto: any) {
@@ -1155,6 +1776,32 @@ export class ManagerService {
       action: 'QUICK_CREATE_PAYMENT',
     });
 
+    const [branchName, customer] = await Promise.all([
+      this.getBranchName(branchId),
+      this.prisma.customer.findUnique({ where: { id: dto.customerId }, select: { full_name: true, phone: true } }),
+    ]);
+    await this.notifications.notifyOnce({
+      tenantId,
+      branchId,
+      branchName,
+      eventCode: 'PAYMENT_CONFIRMED',
+      entityId: payment.id,
+      title: `Thanh toán ${formatVnd(Number(dto.amount))} từ ${customer?.full_name ?? 'khách hàng'} đã được xác nhận`,
+      body: `${dto.title || 'Thanh toán nhanh'}.`,
+      targetPath: '/customers',
+      extraPayload: {
+        items: [
+          {
+            id: payment.id,
+            customerName: customer?.full_name ?? 'Khách hàng',
+            customerPhone: customer?.phone ?? null,
+            amount: Number(dto.amount),
+            method: payment.method,
+          },
+        ],
+      },
+    });
+
     return payment;
   }
 
@@ -1170,6 +1817,14 @@ export class ManagerService {
       throw new BadRequestException('Email này đã được đăng ký tài khoản trên hệ thống');
     }
 
+    // Check if email is used by a Customer
+    const existingCustomerEmail = await this.prisma.customer.findFirst({
+      where: { tenant_id: tenantId, email: { equals: dto.email, mode: 'insensitive' } },
+    });
+    if (existingCustomerEmail) {
+      throw new BadRequestException('Email này đã được sử dụng bởi một Khách hàng / Hội viên phòng tập');
+    }
+
     // Check duplicate phone if provided
     if (dto.phone) {
       const existingPhone = await this.prisma.user.findFirst({
@@ -1177,6 +1832,13 @@ export class ManagerService {
       });
       if (existingPhone) {
         throw new BadRequestException('Số điện thoại này đã được sử dụng trong doanh nghiệp');
+      }
+
+      const existingCustomerPhone = await this.prisma.customer.findFirst({
+        where: { tenant_id: tenantId, phone: dto.phone },
+      });
+      if (existingCustomerPhone) {
+        throw new BadRequestException('Số điện thoại này đã được sử dụng bởi một Khách hàng / Hội viên phòng tập');
       }
     }
 
@@ -1290,7 +1952,8 @@ export class ManagerService {
       }
     }
 
-    const passwordHash = await bcrypt.hash(dto.defaultPassword, 10);
+    const rawPassword = dto.defaultPassword && dto.defaultPassword.trim() ? dto.defaultPassword.trim() : generateTempPassword();
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
 
     const customer = await this.prisma.$transaction(async (tx) => {
       // Find CUSTOMER role
@@ -1344,6 +2007,20 @@ export class ManagerService {
 
       return newCustomer;
     });
+
+    // Send high-end luxury credentials email to customer
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, legal_name: true },
+    });
+    const tenantName = tenant?.name || tenant?.legal_name || 'FitFlow';
+
+    await this.mailService.sendCustomerAccountCredentialsEmail(
+      dto.email,
+      dto.fullName,
+      tenantName,
+      rawPassword,
+    );
 
     await writeAuditLog(this.prisma, {
       tenantId,
@@ -1410,7 +2087,7 @@ export class ManagerService {
       });
 
       const paymentCode = `PAY-MEM-${Date.now()}`;
-      await tx.payment.create({
+      const payment = await tx.payment.create({
         data: {
           tenant_id: tenantId,
           branch_id: branchId,
@@ -1426,6 +2103,40 @@ export class ManagerService {
         },
       });
 
+      return { membership, payment };
+    }).then(async ({ membership, payment }) => {
+      const branchName = await this.getBranchName(branchId);
+      const detailItem = {
+        id: membership.id,
+        customerName: customer.full_name,
+        customerPhone: customer.phone,
+        amount: Number(pkg.base_price),
+        method: payment.method,
+        packageName: pkg.name,
+        endDate: membership.end_date.toISOString(),
+      };
+      await this.notifications.notifyOnce({
+        tenantId,
+        branchId,
+        branchName,
+        eventCode: 'MEMBERSHIP_SOLD',
+        entityId: membership.id,
+        title: `${customer.full_name} vừa đăng ký gói ${pkg.name}`,
+        body: `${formatVnd(Number(pkg.base_price))}.`,
+        targetPath: '/memberships',
+        extraPayload: { items: [detailItem] },
+      });
+      await this.notifications.notifyOnce({
+        tenantId,
+        branchId,
+        branchName,
+        eventCode: 'PAYMENT_CONFIRMED',
+        entityId: payment.id,
+        title: `Thanh toán ${formatVnd(Number(pkg.base_price))} từ ${customer.full_name} đã được xác nhận`,
+        body: `Gói tập ${pkg.name}.`,
+        targetPath: '/memberships',
+        extraPayload: { items: [{ ...detailItem, id: payment.id }] },
+      });
       return membership;
     });
   }
@@ -1575,6 +2286,40 @@ export class ManagerService {
 
     this.realtimeGateway.emitToBranch(tenantId, branchId, 'guestvisit:updated', { guestVisitId: result.visit.id });
     this.realtimeGateway.emitToBranch(tenantId, branchId, 'dashboard:refresh', {});
+
+    {
+      const branchName = await this.getBranchName(branchId);
+      const detailItem = {
+        id: result.visit.id,
+        customerName: customer.full_name,
+        customerPhone: customer.phone,
+        amount: Number(pkg.base_price),
+        method: result.payment.method,
+        packageName: pkg.name,
+      };
+      await this.notifications.notifyOnce({
+        tenantId,
+        branchId,
+        branchName,
+        eventCode: 'GUEST_VISIT_CREATED',
+        entityId: result.visit.id,
+        title: `Khách vãng lai ${customer.full_name} vừa đăng ký vé lượt`,
+        body: `${pkg.name}.`,
+        targetPath: '/guest-visits',
+        extraPayload: { items: [detailItem] },
+      });
+      await this.notifications.notifyOnce({
+        tenantId,
+        branchId,
+        branchName,
+        eventCode: 'PAYMENT_CONFIRMED',
+        entityId: result.payment.id,
+        title: `Thanh toán ${formatVnd(Number(pkg.base_price))} từ ${customer.full_name} đã được xác nhận`,
+        body: `Vé lượt ${pkg.name}.`,
+        targetPath: '/guest-visits',
+        extraPayload: { items: [{ ...detailItem, id: result.payment.id }] },
+      });
+    }
 
     return result.visit;
   }
@@ -1837,6 +2582,31 @@ export class ManagerService {
         package: customerPtPackage,
         payment,
       };
+    }).then(async (result) => {
+      const branchName = await this.getBranchName(branchId);
+      await this.notifications.notifyOnce({
+        tenantId,
+        branchId,
+        branchName,
+        eventCode: 'PAYMENT_CONFIRMED',
+        entityId: result.payment.id,
+        title: `Thanh toán ${formatVnd(Number(plan.price))} từ ${customer.full_name} đã được xác nhận`,
+        body: `Gói PT ${plan.name}.`,
+        targetPath: '/pt',
+        extraPayload: {
+          items: [
+            {
+              id: result.payment.id,
+              customerName: customer.full_name,
+              customerPhone: customer.phone,
+              amount: Number(plan.price),
+              method: result.payment.method,
+              packageName: plan.name,
+            },
+          ],
+        },
+      });
+      return result;
     });
   }
 }

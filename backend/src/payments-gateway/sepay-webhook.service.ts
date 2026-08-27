@@ -2,6 +2,11 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesFulfillmentService } from '../manager/sales-fulfillment.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
+
+function formatVnd(amount: number): string {
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+}
 
 interface SepayIpnPayload {
   id: number | string;
@@ -31,6 +36,7 @@ export class SepayWebhookService {
     private readonly prisma: PrismaService,
     private readonly salesFulfillment: SalesFulfillmentService,
     private readonly realtimeGateway: RealtimeGateway,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async handleIpn(
@@ -105,6 +111,7 @@ export class SepayWebhookService {
     }
 
     const pendingAction = (match.pending_action as { type?: string; payload?: Record<string, any> } | null) || {};
+    let fulfilledEntityId: string | null = null;
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -114,8 +121,8 @@ export class SepayWebhookService {
         });
 
         switch (pendingAction.type) {
-          case 'MEMBERSHIP':
-            await this.salesFulfillment.finalizeMembershipSale(tx, {
+          case 'MEMBERSHIP': {
+            const membership = await this.salesFulfillment.finalizeMembershipSale(tx, {
               tenantId,
               branchId: match.branch_id,
               userId: match.created_by,
@@ -123,9 +130,11 @@ export class SepayWebhookService {
               packageId: pendingAction.payload?.packageId,
               startDate: pendingAction.payload?.startDate,
             });
+            fulfilledEntityId = membership.id;
             break;
-          case 'PT_PACKAGE':
-            await this.salesFulfillment.finalizePtPackageSale(tx, {
+          }
+          case 'PT_PACKAGE': {
+            const { customerPtPackage } = await this.salesFulfillment.finalizePtPackageSale(tx, {
               tenantId,
               branchId: match.branch_id,
               userId: match.created_by,
@@ -134,9 +143,11 @@ export class SepayWebhookService {
               paymentId: match.id,
               startDate: pendingAction.payload?.startDate,
             });
+            fulfilledEntityId = customerPtPackage.id;
             break;
-          case 'GUEST_VISIT':
-            await this.salesFulfillment.finalizeGuestVisitSale(tx, {
+          }
+          case 'GUEST_VISIT': {
+            const { visit } = await this.salesFulfillment.finalizeGuestVisitSale(tx, {
               tenantId,
               branchId: match.branch_id,
               userId: match.created_by,
@@ -144,7 +155,9 @@ export class SepayWebhookService {
               packageId: pendingAction.payload?.packageId,
               paymentId: match.id,
             });
+            fulfilledEntityId = visit.id;
             break;
+          }
           case 'QUICK':
           default:
             // Standalone quick charge — marking the Payment PAID above is the whole job.
@@ -176,6 +189,89 @@ export class SepayWebhookService {
     }
     this.realtimeGateway.emitToBranch(tenantId, match.branch_id, 'dashboard:refresh', {});
 
+    await this.notifyFulfilled(tenantId, match, pendingAction, fulfilledEntityId);
+
     return { success: true };
+  }
+
+  /**
+   * Mirrors ManagerService's cash-sale notifications (MEMBERSHIP_SOLD /
+   * GUEST_VISIT_CREATED / PAYMENT_CONFIRMED) for the async VietQR path — same
+   * business events, just confirmed by the bank webhook instead of at the counter.
+   * Best-effort: swallow errors, never let a notification failure surface as a
+   * webhook failure (SePay would retry a non-2xx and re-process the transaction).
+   */
+  private async notifyFulfilled(
+    tenantId: string,
+    match: { id: string; branch_id: string; customer_id: string; total_amount: any },
+    pendingAction: { type?: string; payload?: Record<string, any> },
+    fulfilledEntityId: string | null,
+  ) {
+    try {
+      const [branch, customer] = await Promise.all([
+        this.prisma.branch.findUnique({ where: { id: match.branch_id }, select: { name: true } }),
+        this.prisma.customer.findUnique({ where: { id: match.customer_id }, select: { full_name: true, phone: true } }),
+      ]);
+      const branchName = branch?.name ?? 'Chi nhánh';
+      const customerName = customer?.full_name ?? 'Khách hàng';
+      const customerPhone = customer?.phone ?? null;
+      const amountNum = Number(match.total_amount);
+      const amount = formatVnd(amountNum);
+
+      let packageName: string | null = null;
+      if ((pendingAction.type === 'MEMBERSHIP' || pendingAction.type === 'GUEST_VISIT') && pendingAction.payload?.packageId) {
+        const pkg = await this.prisma.membershipPackage.findUnique({ where: { id: pendingAction.payload.packageId }, select: { name: true } });
+        packageName = pkg?.name ?? null;
+      } else if (pendingAction.type === 'PT_PACKAGE' && pendingAction.payload?.planId) {
+        const plan = await this.prisma.pt_package_plans.findUnique({ where: { id: pendingAction.payload.planId }, select: { name: true } });
+        packageName = plan?.name ?? null;
+      }
+
+      if (pendingAction.type === 'MEMBERSHIP' && fulfilledEntityId) {
+        await this.notifications.notifyOnce({
+          tenantId,
+          branchId: match.branch_id,
+          branchName,
+          eventCode: 'MEMBERSHIP_SOLD',
+          entityId: fulfilledEntityId,
+          title: `${customerName} vừa đăng ký gói ${packageName ?? 'tập'}`,
+          body: `${amount} (chuyển khoản VietQR).`,
+          targetPath: '/memberships',
+          extraPayload: {
+            items: [{ id: fulfilledEntityId, customerName, customerPhone, amount: amountNum, method: 'VIETQR', packageName: packageName ?? undefined }],
+          },
+        });
+      } else if (pendingAction.type === 'GUEST_VISIT' && fulfilledEntityId) {
+        await this.notifications.notifyOnce({
+          tenantId,
+          branchId: match.branch_id,
+          branchName,
+          eventCode: 'GUEST_VISIT_CREATED',
+          entityId: fulfilledEntityId,
+          title: `Khách vãng lai ${customerName} vừa đăng ký vé lượt`,
+          body: `${packageName ?? 'Vé lượt'} (chuyển khoản VietQR).`,
+          targetPath: '/guest-visits',
+          extraPayload: {
+            items: [{ id: fulfilledEntityId, customerName, customerPhone, amount: amountNum, method: 'VIETQR', packageName: packageName ?? undefined }],
+          },
+        });
+      }
+
+      await this.notifications.notifyOnce({
+        tenantId,
+        branchId: match.branch_id,
+        branchName,
+        eventCode: 'PAYMENT_CONFIRMED',
+        entityId: match.id,
+        title: `Thanh toán ${amount} từ ${customerName} đã được xác nhận`,
+        body: `Chuyển khoản VietQR.`,
+        targetPath: pendingAction.type === 'GUEST_VISIT' ? '/guest-visits' : pendingAction.type === 'PT_PACKAGE' ? '/pt' : '/memberships',
+        extraPayload: {
+          items: [{ id: match.id, customerName, customerPhone, amount: amountNum, method: 'VIETQR', packageName: packageName ?? undefined }],
+        },
+      });
+    } catch (err) {
+      this.logger.error('Failed to send SePay-confirmed notifications', err as Error);
+    }
   }
 }

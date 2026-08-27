@@ -181,7 +181,7 @@ export default function QuickActionsModals({ activeAction, onClose }: QuickActio
             />
           </FormField>
 
-          <FormField label="Email (Không bắt buộc)" htmlFor="quick-email">
+          <FormField label="Email (Tự động cấp tài khoản)" htmlFor="quick-email">
             <input
               id="quick-email"
               type="email"
@@ -190,6 +190,9 @@ export default function QuickActionsModals({ activeAction, onClose }: QuickActio
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
+            <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+              💡 Khi điền Email, hệ thống sẽ tự động tạo tài khoản & gửi mật khẩu tạm về Gmail cho hội viên.
+            </p>
           </FormField>
 
           <FormField label="Giới tính" htmlFor="quick-gender">

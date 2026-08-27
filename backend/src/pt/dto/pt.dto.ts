@@ -126,3 +126,35 @@ export class UpdateWorkingHoursDto {
   @Type(() => WorkingHourItemDto)
   hours!: WorkingHourItemDto[];
 }
+
+export class CreatePtBookingByPtDto {
+  @IsString()
+  @IsNotEmpty()
+  customerId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  customerPtPackageId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  scheduledStart!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  scheduledEnd!: string;
+
+  @IsString()
+  @IsOptional()
+  sessionNote?: string;
+}
+
+export class MarkNoShowDto {
+  @IsString()
+  @IsNotEmpty()
+  bookingId!: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
+}

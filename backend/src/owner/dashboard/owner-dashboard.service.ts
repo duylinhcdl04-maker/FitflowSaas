@@ -66,6 +66,7 @@ export class OwnerDashboardService {
       revenueAgg,
       prevRevenueAgg,
       checkinTotal,
+      dailyUniqueVisitors,
       currentlyInGym,
       activeMembers,
       recentPayments,
@@ -73,6 +74,7 @@ export class OwnerDashboardService {
       recentMemberships,
       expiringTodayCount,
       expiringSoonCount,
+      expiringMembershipsList,
     ] = await Promise.all([
       this.prisma.payment.aggregate({
         where: {
@@ -92,7 +94,8 @@ export class OwnerDashboardService {
         },
         _sum: { total_amount: true },
       }),
-      // BR-OD-03: lượt Undo (CANCELLED) không tính vào KPI.
+      // BR-OD-03: lượt Undo (CANCELLED) không tính vào KPI. "Tổng lượt Check-in"
+      // (Total Check-in Events) — mỗi lượt vào tính riêng, một khách có thể có nhiều lượt.
       this.prisma.attendances.count({
         where: {
           tenant_id: tenantId,
@@ -101,6 +104,20 @@ export class OwnerDashboardService {
           ...branchFilter,
         },
       }),
+      // BR-STAT-001: "Khách đã đến" (Daily Unique Visitors) — một khách chỉ tính một lần
+      // trong kỳ dù check-in nhiều lượt (check-in → check-out → check-in lại). Không được
+      // gộp chung với "Tổng lượt Check-in" phía trên — đó là hai chỉ số khác nhau.
+      this.prisma.attendances
+        .groupBy({
+          by: ['customer_id'],
+          where: {
+            tenant_id: tenantId,
+            check_in_at: { gte: from, lte: to },
+            status: { not: 'CANCELLED' },
+            ...branchFilter,
+          },
+        })
+        .then((rows) => rows.length),
       // BR-OD-09: tính theo thời điểm hiện tại, không phụ thuộc Date Range.
       this.prisma.attendances.count({
         where: { tenant_id: tenantId, status: 'CHECKED_IN', ...branchFilter },
@@ -121,19 +138,23 @@ export class OwnerDashboardService {
           total_amount: true,
           paid_at: true,
           payment_type: true,
-          customers: { select: { full_name: true } },
+          method: true,
+          payment_code: true,
+          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
+          branches: { select: { id: true, name: true } },
         },
       }),
       this.prisma.attendances.findMany({
         where: { tenant_id: tenantId, status: { not: 'CANCELLED' } },
         orderBy: { check_in_at: 'desc' },
-        take: 5,
+        take: 10,
         select: {
           id: true,
           check_in_at: true,
           check_in_method: true,
-          branches: { select: { name: true } },
-          customers: { select: { full_name: true } },
+          status: true,
+          branches: { select: { id: true, name: true } },
+          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
         },
       }),
       this.prisma.membership.findMany({
@@ -144,7 +165,11 @@ export class OwnerDashboardService {
           id: true,
           created_at: true,
           package_name_snapshot: true,
-          customers: { select: { full_name: true } },
+          start_date: true,
+          end_date: true,
+          status: true,
+          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
+          branches: { select: { id: true, name: true } },
         },
       }),
       this.prisma.membership.count({
@@ -162,6 +187,28 @@ export class OwnerDashboardService {
             gt: this.startOfDay(new Date()),
             lte: this.addDays(this.startOfDay(new Date()), 7),
           },
+        },
+      }),
+      this.prisma.membership.findMany({
+        where: {
+          tenant_id: tenantId,
+          status: 'ACTIVE',
+          end_date: {
+            gte: this.startOfDay(new Date()),
+            lte: this.addDays(this.startOfDay(new Date()), 7),
+          },
+          ...branchFilter,
+        },
+        orderBy: { end_date: 'asc' },
+        take: 20,
+        select: {
+          id: true,
+          package_name_snapshot: true,
+          start_date: true,
+          end_date: true,
+          status: true,
+          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
+          branches: { select: { id: true, name: true } },
         },
       }),
     ]);
@@ -184,6 +231,7 @@ export class OwnerDashboardService {
     const alerts = this.buildAlerts({
       expiringTodayCount,
       expiringSoonCount,
+      expiringMembershipsList,
       staffCount,
       branchCount,
       subscription,
@@ -195,6 +243,54 @@ export class OwnerDashboardService {
       recentMemberships,
     );
 
+    const [activeMemCount, expiringSoonMemCount, expiredMemCount, totalMemCount] = await Promise.all([
+      this.prisma.membership.count({
+        where: { tenant_id: tenantId, status: 'ACTIVE', end_date: { gt: this.addDays(this.startOfDay(new Date()), 7) }, ...branchFilter },
+      }),
+      this.prisma.membership.count({
+        where: {
+          tenant_id: tenantId,
+          status: 'ACTIVE',
+          end_date: { gte: this.startOfDay(new Date()), lte: this.addDays(this.startOfDay(new Date()), 7) },
+          ...branchFilter,
+        },
+      }),
+      this.prisma.membership.count({
+        where: { tenant_id: tenantId, status: 'EXPIRED', ...branchFilter },
+      }),
+      this.prisma.membership.count({
+        where: { tenant_id: tenantId, ...branchFilter },
+      }),
+    ]);
+
+    const membershipStatusBreakdown = [
+      { label: 'Đang hoạt động', count: activeMemCount, pct: totalMemCount ? Math.round((activeMemCount / totalMemCount) * 100) : 0, color: 'bg-emerald-500' },
+      { label: 'Sắp hết hạn (7 ngày)', count: expiringSoonMemCount, pct: totalMemCount ? Math.round((expiringSoonMemCount / totalMemCount) * 100) : 0, color: 'bg-amber-500' },
+      { label: 'Hết hạn', count: expiredMemCount, pct: totalMemCount ? Math.round((expiredMemCount / totalMemCount) * 100) : 0, color: 'bg-rose-500' },
+    ];
+
+    const paymentsWithItems = await this.prisma.payment.findMany({
+      where: { tenant_id: tenantId, status: 'PAID', paid_at: { gte: from, lte: to }, ...branchFilter },
+      select: { total_amount: true, payment_type: true },
+    });
+
+    const pkgMap = new Map<string, number>();
+    for (const p of paymentsWithItems) {
+      const label = p.payment_type === 'MEMBERSHIP' ? 'Gói Membership' : p.payment_type === 'PT' ? 'Gói PT' : 'Vé lượt / Khác';
+      pkgMap.set(label, (pkgMap.get(label) ?? 0) + Number(p.total_amount));
+    }
+
+    const totalRev = Array.from(pkgMap.values()).reduce((sum, v) => sum + v, 0);
+    const revenueByPackageBreakdown = Array.from(pkgMap.entries()).map(([name, amount]) => ({
+      name,
+      amount,
+      pct: totalRev > 0 ? Math.round((amount / totalRev) * 100) : 0,
+    }));
+
+    const membershipGrowthChart = await this.buildMembershipGrowthChart(tenantId, from, to, query.branchId);
+    const peakCheckinHours = await this.buildPeakCheckinHours(tenantId, from, to, query.branchId);
+    const peakCheckinDaysOfWeek = await this.buildPeakCheckinDaysOfWeek(tenantId, from, to, query.branchId);
+
     return {
       context: { tenantId, branchId: query.branchId ?? null, from, to },
       hasBranches: true,
@@ -203,20 +299,29 @@ export class OwnerDashboardService {
           total: revenue,
           growthPct: this.growthPct(revenue, prevRevenue),
         },
-        checkins: { total: checkinTotal },
+        checkins: { total: checkinTotal, dailyUniqueVisitors },
         currentlyInGym,
         activeMembers,
       },
       revenueChart,
       branchPerformance,
+      membershipStatusBreakdown,
+      revenueByPackageBreakdown,
+      membershipGrowthChart,
+      peakCheckinHours,
+      peakCheckinDaysOfWeek,
       alerts,
       recentActivities,
       recentCheckins: recentAttendances.map((a) => ({
         id: a.id,
         occurredAt: a.check_in_at,
-        customerName: a.customers.full_name,
-        branchName: a.branches.name,
+        customerId: a.customers?.id,
+        customerName: a.customers?.full_name || 'Khách hàng',
+        customerPhone: a.customers?.phone || '',
+        customerCode: a.customers?.customer_code || '',
+        branchName: a.branches?.name || 'Chi nhánh',
         method: a.check_in_method,
+        status: a.status,
       })),
       subscription: subscription
         ? this.buildSubscriptionWidget(subscription, branchCount, staffCount)
@@ -370,6 +475,7 @@ export class OwnerDashboardService {
   private buildAlerts(params: {
     expiringTodayCount: number;
     expiringSoonCount: number;
+    expiringMembershipsList: any[];
     staffCount: number;
     branchCount: number;
     subscription: {
@@ -383,25 +489,65 @@ export class OwnerDashboardService {
     } | null;
   }) {
     const alerts: {
+      id: string;
+      type: 'MEMBERSHIP_EXPIRING_TODAY' | 'MEMBERSHIP_EXPIRING_SOON' | 'QUOTA_BRANCH' | 'QUOTA_STAFF';
       priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
       message: string;
+      targetUrl?: string;
+      items?: any[];
+      details?: any;
     }[] = [];
 
     if (params.expiringTodayCount > 0) {
+      const todayItems = params.expiringMembershipsList.filter(
+        (m) => new Date(m.end_date).toDateString() === new Date().toDateString(),
+      );
       alerts.push({
+        id: 'alert-expiring-today',
+        type: 'MEMBERSHIP_EXPIRING_TODAY',
         priority: 'CRITICAL',
         message: `${params.expiringTodayCount} Membership hết hạn hôm nay`,
+        targetUrl: '/owner/customers',
+        items: (todayItems.length > 0 ? todayItems : params.expiringMembershipsList).map((m) => ({
+          id: m.id,
+          customerId: m.customers?.id,
+          customerName: m.customers?.full_name || 'Hội viên',
+          customerPhone: m.customers?.phone || '',
+          customerCode: m.customers?.customer_code || '',
+          packageName: m.package_name_snapshot,
+          branchName: m.branches?.name || '',
+          endDate: m.end_date,
+          daysRemaining: 0,
+        })),
       });
     }
     if (params.expiringSoonCount > 0) {
+      const now = new Date();
       alerts.push({
+        id: 'alert-expiring-soon',
+        type: 'MEMBERSHIP_EXPIRING_SOON',
         priority: 'HIGH',
         message: `${params.expiringSoonCount} Membership hết hạn trong 7 ngày`,
+        targetUrl: '/owner/customers',
+        items: params.expiringMembershipsList.map((m) => {
+          const days = Math.ceil((new Date(m.end_date).getTime() - now.getTime()) / 86_400_000);
+          return {
+            id: m.id,
+            customerId: m.customers?.id,
+            customerName: m.customers?.full_name || 'Hội viên',
+            customerPhone: m.customers?.phone || '',
+            customerCode: m.customers?.customer_code || '',
+            packageName: m.package_name_snapshot,
+            branchName: m.branches?.name || '',
+            endDate: m.end_date,
+            daysRemaining: Math.max(0, days),
+          };
+        }),
       });
     }
 
     const quotaByCode = new Map(
-      (params.subscription?.saas_plans.saas_plan_features ?? []).map((f) => [
+      (params.subscription?.saas_plans.saas_plan_features ?? []).map((f: any) => [
         f.platform_features.code,
         f.quota_value,
       ]),
@@ -415,8 +561,12 @@ export class OwnerDashboardService {
       params.branchCount / maxBranches >= 0.9
     ) {
       alerts.push({
+        id: 'alert-quota-branch',
+        type: 'QUOTA_BRANCH',
         priority: 'MEDIUM',
         message: `Đã dùng ${params.branchCount}/${maxBranches} chi nhánh`,
+        targetUrl: '/owner/branches',
+        details: { used: params.branchCount, limit: maxBranches },
       });
     }
     if (
@@ -425,8 +575,12 @@ export class OwnerDashboardService {
       params.staffCount / maxStaff >= 0.9
     ) {
       alerts.push({
+        id: 'alert-quota-staff',
+        type: 'QUOTA_STAFF',
         priority: 'MEDIUM',
         message: `Đã dùng ${params.staffCount}/${maxStaff} nhân sự`,
+        targetUrl: '/owner/branch-managers',
+        details: { used: params.staffCount, limit: maxStaff },
       });
     }
 
@@ -435,38 +589,62 @@ export class OwnerDashboardService {
 
   // BR-OD-07: chỉ sự kiện nghiệp vụ, không sự kiện kỹ thuật.
   private mergeRecentActivities(
-    payments: {
-      id: string;
-      total_amount: unknown;
-      paid_at: Date | null;
-      payment_type: string;
-      customers: { full_name: string };
-    }[],
-    attendances: {
-      id: string;
-      check_in_at: Date;
-      branches: { name: string };
-      customers: { full_name: string };
-    }[],
-    memberships: {
-      id: string;
-      created_at: Date;
-      package_name_snapshot: string;
-      customers: { full_name: string };
-    }[],
+    payments: any[],
+    attendances: any[],
+    memberships: any[],
   ) {
     const events = [
       ...payments.map((p) => ({
+        id: p.id,
+        type: 'PAYMENT' as const,
         occurredAt: p.paid_at ?? new Date(0),
-        message: `Thanh toán thành công ${Number(p.total_amount).toLocaleString('vi-VN')}đ — ${p.customers.full_name}`,
+        message: `Thanh toán thành công ${Number(p.total_amount).toLocaleString('vi-VN')}đ — ${p.customers?.full_name || 'Khách hàng'}`,
+        details: {
+          id: p.id,
+          amount: Number(p.total_amount),
+          paymentType: p.payment_type,
+          paymentMethod: p.method,
+          invoiceCode: p.payment_code,
+          customerId: p.customers?.id,
+          customerName: p.customers?.full_name,
+          customerPhone: p.customers?.phone,
+          customerCode: p.customers?.customer_code,
+          branchName: p.branches?.name,
+        },
       })),
       ...attendances.map((a) => ({
+        id: a.id,
+        type: 'CHECKIN' as const,
         occurredAt: a.check_in_at,
-        message: `${a.customers.full_name} Check-in tại ${a.branches.name}`,
+        message: `${a.customers?.full_name || 'Hội viên'} Check-in tại ${a.branches?.name || 'Chi nhánh'}`,
+        details: {
+          id: a.id,
+          customerId: a.customers?.id,
+          customerName: a.customers?.full_name,
+          customerPhone: a.customers?.phone,
+          customerCode: a.customers?.customer_code,
+          branchName: a.branches?.name,
+          checkInMethod: a.check_in_method,
+          status: a.status,
+        },
       })),
       ...memberships.map((m) => ({
+        id: m.id,
+        type: 'MEMBERSHIP' as const,
         occurredAt: m.created_at,
-        message: `Membership "${m.package_name_snapshot}" mới cho ${m.customers.full_name}`,
+        message: `Membership "${m.package_name_snapshot}" mới cho ${m.customers?.full_name || 'Hội viên'}`,
+        details: {
+          id: m.id,
+          customerId: m.customers?.id,
+          customerName: m.customers?.full_name,
+          customerPhone: m.customers?.phone,
+          customerCode: m.customers?.customer_code,
+          packageName: m.package_name_snapshot,
+          startDate: m.start_date,
+          endDate: m.end_date,
+          branchName: m.branches?.name,
+          status: m.status,
+        },
       })),
     ];
     return events
@@ -522,5 +700,91 @@ export class OwnerDashboardService {
         limit: quotaByCode.get(code) ?? null,
       })),
     };
+  }
+
+  private async buildMembershipGrowthChart(
+    tenantId: string,
+    from: Date,
+    to: Date,
+    branchId?: string,
+  ) {
+    const branchFilter = branchId ? { branch_id: branchId } : {};
+    const memberships = await this.prisma.membership.findMany({
+      where: { tenant_id: tenantId, created_at: { gte: from, lte: to }, ...branchFilter },
+      select: { created_at: true },
+    });
+
+    const dateMap = new Map<string, number>();
+    const curr = new Date(from);
+    while (curr <= to) {
+      const dStr = curr.toISOString().split('T')[0];
+      dateMap.set(dStr, 0);
+      curr.setDate(curr.getDate() + 1);
+    }
+
+    for (const m of memberships) {
+      const dStr = m.created_at.toISOString().split('T')[0];
+      if (dateMap.has(dStr)) {
+        dateMap.set(dStr, (dateMap.get(dStr) ?? 0) + 1);
+      }
+    }
+
+    return Array.from(dateMap.entries()).map(([date, count]) => ({ date, count }));
+  }
+
+  private async buildPeakCheckinHours(
+    tenantId: string,
+    from: Date,
+    to: Date,
+    branchId?: string,
+  ) {
+    const branchFilter = branchId ? { branch_id: branchId } : {};
+    const attendances = await this.prisma.attendances.findMany({
+      where: { tenant_id: tenantId, check_in_at: { gte: from, lte: to }, ...branchFilter },
+      select: { check_in_at: true },
+    });
+
+    const hourMap = new Map<number, number>();
+    for (let h = 6; h <= 21; h++) hourMap.set(h, 0);
+
+    for (const a of attendances) {
+      const h = new Date(a.check_in_at).getHours();
+      if (hourMap.has(h)) {
+        hourMap.set(h, (hourMap.get(h) ?? 0) + 1);
+      }
+    }
+
+    return Array.from(hourMap.entries()).map(([h, count]) => ({
+      hour: `${String(h).padStart(2, '0')}:00`,
+      count,
+    }));
+  }
+
+  private async buildPeakCheckinDaysOfWeek(
+    tenantId: string,
+    from: Date,
+    to: Date,
+    branchId?: string,
+  ) {
+    const branchFilter = branchId ? { branch_id: branchId } : {};
+    const attendances = await this.prisma.attendances.findMany({
+      where: { tenant_id: tenantId, check_in_at: { gte: from, lte: to }, ...branchFilter },
+      select: { check_in_at: true },
+    });
+
+    const DAY_LABELS = ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    const dayMap = new Map<number, number>();
+    for (let d = 0; d <= 6; d++) dayMap.set(d, 0);
+
+    for (const a of attendances) {
+      const dayIdx = new Date(a.check_in_at).getDay();
+      dayMap.set(dayIdx, (dayMap.get(dayIdx) ?? 0) + 1);
+    }
+
+    const orderedIndices = [1, 2, 3, 4, 5, 6, 0];
+    return orderedIndices.map((idx) => ({
+      day: DAY_LABELS[idx],
+      count: dayMap.get(idx) ?? 0,
+    }));
   }
 }

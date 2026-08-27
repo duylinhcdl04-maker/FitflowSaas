@@ -7,6 +7,7 @@ export interface PtSummary {
   status: string;
   specialties: string[];
   experienceYears: number | null;
+  branchNames?: string[];
   activeCustomers: number;
   todaySessions: number;
 }
@@ -34,12 +35,12 @@ export interface PtBookingRow {
   status: string;
 }
 
-export function listPts() {
-  return apiClient.get<PtSummary[]>('/owner/pt').then((res) => res.data);
+export function listPts(branchId?: string) {
+  return apiClient.get<PtSummary[]>('/owner/pt', { params: { branchId } }).then((res) => res.data);
 }
 
-export function listPtPackagePlans(status?: string) {
-  return apiClient.get<PtPackagePlan[]>('/owner/pt/packages', { params: { status } }).then((res) => res.data);
+export function listPtPackagePlans(status?: string, branchId?: string) {
+  return apiClient.get<PtPackagePlan[]>('/owner/pt/packages', { params: { status, branchId } }).then((res) => res.data);
 }
 
 export function approvePtPackagePlan(id: string) {

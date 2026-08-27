@@ -20,6 +20,7 @@ import { ROLE } from '../common/types/role';
 import {
   ManualCheckinDto,
   UndoCheckinDto,
+  QrScanCheckinDto,
   FreezeMembershipDto,
   AddFreeDaysDto,
   PtBookingDto,
@@ -60,6 +61,18 @@ export class ManagerController {
     return this.managerService.getDashboardOverview(user, branchId);
   }
 
+  @Get('dashboard/performance')
+  @Roles(ROLE.STAFF, ROLE.BRANCH_MANAGER, ROLE.OWNER)
+  getDashboardPerformance(
+    @CurrentUser() user: RequestUser,
+    @Query('branchId') branchId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy?: 'day' | 'week' | 'month',
+  ) {
+    return this.managerService.getDashboardPerformance(user, branchId, { from, to, groupBy });
+  }
+
   @Get('checkin/currently-in-gym')
   getCurrentlyInGym(
     @CurrentUser() user: RequestUser,
@@ -84,6 +97,15 @@ export class ManagerController {
     @Param('id') attendanceId: string,
   ) {
     return this.managerService.manualCheckout(user, attendanceId);
+  }
+
+  @Post('checkin/qr-scan')
+  @HttpCode(HttpStatus.OK)
+  checkInOrOutViaQr(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: QrScanCheckinDto,
+  ) {
+    return this.managerService.checkInOrOutViaQr(user, dto);
   }
 
   @Post('checkin/undo')
@@ -232,6 +254,16 @@ export class ManagerController {
     @Body() dto: UpdateCustomerStatusDto,
   ) {
     return this.managerService.toggleCustomerStatus(user, customerId, dto);
+  }
+
+  @Post('customers/:id/reset-password')
+  @Roles(ROLE.STAFF, ROLE.BRANCH_MANAGER, ROLE.OWNER)
+  @HttpCode(HttpStatus.OK)
+  resetCustomerPassword(
+    @CurrentUser() user: RequestUser,
+    @Param('id') customerId: string,
+  ) {
+    return this.managerService.resetCustomerPassword(user, customerId);
   }
 
   @Get('guest-visits')

@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   ConfirmBookingDto,
   RejectBookingDto,
@@ -13,16 +14,53 @@ import {
   CreatePtPackagePlanDto,
   UpdatePtProfileDto,
   UpdateWorkingHoursDto,
+  CreatePtBookingByPtDto,
+  MarkNoShowDto,
 } from './dto/pt.dto';
+
+function formatBookingTime(d: Date): string {
+  return d.toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' });
+}
 
 @Injectable()
 export class PtService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  /** Best-effort — a customer without a Customer Portal account (no linked User row)
+   * simply gets no push, same "only if user_id is set" guard used for AUTO_CHECKOUT
+   * (manager.service.ts#autoCheckoutAttendance). */
+  private async notifyCustomerOfBooking(
+    tenantId: string,
+    customerId: string,
+    input: {
+      eventCode: string;
+      entityId: string;
+      title: string;
+      body: string;
+      targetPath: string;
+    },
+  ) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { user_id: true },
+    });
+    if (!customer?.user_id) return;
+    await this.notifications.notifyCustomerUser({
+      tenantId,
+      recipientUserId: customer.user_id,
+      ...input,
+    });
+  }
 
   private getTenantId(user: any): string {
     const tenantId = user.tenantId || user.tenant_id;
     if (!tenantId) {
-      throw new BadRequestException('Không tìm thấy thông tin doanh nghiệp (tenant_id) của tài khoản người dùng.');
+      throw new BadRequestException(
+        'Không tìm thấy thông tin doanh nghiệp (tenant_id) của tài khoản người dùng.',
+      );
     }
     return tenantId;
   }
@@ -49,7 +87,14 @@ export class PtService {
       where: { user_id: user.id, tenant_id: tenantId },
       orderBy: { is_primary: 'desc' },
     });
-    return userBranch?.branch_id || user.branch_id || user.branchId;
+    if (userBranch?.branch_id) return userBranch.branch_id;
+    if (user.branch_id || user.branchId) return user.branch_id || user.branchId;
+
+    const firstBranch = await this.prisma.branch.findFirst({
+      where: { tenant_id: tenantId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return firstBranch?.id || null;
   }
 
   async getDashboardOverview(user: any) {
@@ -57,15 +102,30 @@ export class PtService {
     const tenantId = this.getTenantId(user);
     const now = new Date();
 
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const startOfDay = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+    );
+    const endOfDay = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+    );
 
-    // 1. Today's bookings
+    // 1. Today's bookings (active / non-cancelled)
     const todayBookings = await this.prisma.ptBooking.findMany({
       where: {
         tenant_id: tenantId,
         pt_user_id: ptUserId,
         scheduled_start: { gte: startOfDay, lte: endOfDay },
+        status: { not: 'CANCELLED' },
       },
       include: {
         customers: {
@@ -193,13 +253,25 @@ export class PtService {
     });
 
     if (!booking) {
-      throw new NotFoundException('Không tìm thấy lịch hẹn hoặc bạn không có quyền xác nhận');
+      throw new NotFoundException(
+        'Không tìm thấy lịch hẹn hoặc bạn không có quyền xác nhận',
+      );
     }
 
-    return this.prisma.ptBooking.update({
+    const updated = await this.prisma.ptBooking.update({
       where: { id: dto.bookingId },
       data: { status: 'SCHEDULED' },
     });
+
+    await this.notifyCustomerOfBooking(tenantId, updated.customer_id, {
+      eventCode: 'PT_BOOKING_CONFIRMED',
+      entityId: updated.id,
+      title: 'PT đã xác nhận lịch hẹn của bạn',
+      body: `Buổi tập lúc ${formatBookingTime(updated.scheduled_start)} đã được xác nhận.`,
+      targetPath: '/pt',
+    });
+
+    return updated;
   }
 
   async rejectBooking(user: any, dto: RejectBookingDto) {
@@ -212,15 +284,29 @@ export class PtService {
       throw new NotFoundException('Không tìm thấy lịch hẹn');
     }
 
-    return this.prisma.ptBooking.update({
+    // Doc's requirement: if the PT doesn't confirm, the reason must be recorded — falls back
+    // to a default note rather than leaving cancel_reason blank when the PT skips the field.
+    const reason = dto.reason || 'PT bận ca làm việc';
+
+    const updated = await this.prisma.ptBooking.update({
       where: { id: dto.bookingId },
       data: {
         status: 'CANCELLED',
         cancelled_at: new Date(),
         cancelled_by: user.id,
-        cancel_reason: dto.reason || 'PT bận ca làm việc',
+        cancel_reason: reason,
       },
     });
+
+    await this.notifyCustomerOfBooking(tenantId, updated.customer_id, {
+      eventCode: 'PT_BOOKING_REJECTED',
+      entityId: updated.id,
+      title: 'PT không thể nhận lịch hẹn này',
+      body: `Buổi tập lúc ${formatBookingTime(updated.scheduled_start)} đã bị từ chối. Lý do: ${reason}`,
+      targetPath: '/pt',
+    });
+
+    return updated;
   }
 
   // BR-PT-002: Session Deduction Trigger — Only deduct when status is COMPLETED
@@ -236,12 +322,41 @@ export class PtService {
     }
 
     if (booking.status === 'COMPLETED') {
-      throw new BadRequestException('Buổi tập này đã được đánh dấu hoàn thành trước đó');
+      throw new BadRequestException(
+        'Buổi tập này đã được đánh dấu hoàn thành trước đó',
+      );
     }
 
     const pkg = booking.customer_pt_packages;
     if (!pkg) {
       throw new BadRequestException('Gói PT của học viên không hợp lệ');
+    }
+
+    // BR-PT-REL-006: No Future Completion — Chặn xác nhận hoàn thành trước thời gian bắt đầu dự kiến (cho phép tối đa 30 phút trước giờ tập)
+    const earlyWindowMs = 30 * 60 * 1000;
+    if (
+      new Date().getTime() <
+      new Date(booking.scheduled_start).getTime() - earlyWindowMs
+    ) {
+      throw new BadRequestException(
+        'Buổi tập chưa đến thời gian diễn ra. Không thể xác nhận hoàn thành trước thời hạn!',
+      );
+    }
+
+    // BR-PT-REL-002: Valid Membership for PT Session — Hội viên phải có thẻ Gym đang hoạt động tại thời điểm tập PT
+    const activeMembership = await this.prisma.membership.findFirst({
+      where: {
+        tenant_id: tenantId,
+        customer_id: booking.customer_id,
+        status: 'ACTIVE',
+        end_date: { gte: new Date() },
+      },
+    });
+
+    if (!activeMembership) {
+      throw new BadRequestException(
+        'Hội viên chưa có thẻ tập Gym (Membership) đang hoạt động hoặc thẻ đã hết hạn. Không thể hoàn thành buổi tập PT!',
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -256,9 +371,17 @@ export class PtService {
         },
       });
 
-      // 2. Deduct 1 session from customer_pt_packages (BR-PT-002)
-      const newUsed = pkg.used_sessions + 1;
-      const newRemaining = Math.max(0, (pkg.remaining_sessions ?? pkg.total_sessions) - 1);
+      // 2. Sync used_sessions & remaining_sessions with actual COMPLETED PtBookings count
+      const completedCount = await tx.ptBooking.count({
+        where: {
+          tenant_id: tenantId,
+          customer_pt_package_id: pkg.id,
+          status: 'COMPLETED',
+        },
+      });
+
+      const newUsed = completedCount;
+      const newRemaining = Math.max(0, pkg.total_sessions - completedCount);
       const newStatus = newRemaining <= 0 ? 'COMPLETED' : pkg.status;
 
       await tx.customer_pt_packages.update({
@@ -290,6 +413,155 @@ export class PtService {
         used_sessions: newUsed,
       };
     });
+  }
+
+  async markNoShow(user: any, dto: MarkNoShowDto) {
+    const tenantId = this.getTenantId(user);
+    const booking = await this.prisma.ptBooking.findFirst({
+      where: { id: dto.bookingId, tenant_id: tenantId, pt_user_id: user.id },
+    });
+    if (!booking) {
+      throw new NotFoundException('Không tìm thấy lịch hẹn');
+    }
+    if (booking.status === 'COMPLETED') {
+      throw new BadRequestException('Lịch hẹn này đã hoàn thành, không thể báo vắng mặt');
+    }
+
+    const updated = await this.prisma.ptBooking.update({
+      where: { id: dto.bookingId },
+      data: {
+        status: 'NO_SHOW',
+        session_note: dto.reason || booking.session_note || 'Học viên không đến ca dạy',
+      },
+    });
+
+    await this.notifyCustomerOfBooking(tenantId, updated.customer_id, {
+      eventCode: 'PT_BOOKING_NO_SHOW',
+      entityId: updated.id,
+      title: 'Xác nhận vắng mặt ca tập PT',
+      body: `Ca tập lúc ${formatBookingTime(updated.scheduled_start)} đã được ghi nhận vắng mặt.`,
+      targetPath: '/pt',
+    });
+
+    return updated;
+  }
+
+  async createBookingForCustomer(user: any, dto: CreatePtBookingByPtDto) {
+    const tenantId = this.getTenantId(user);
+    await this.ensurePtProfile(tenantId, user.id);
+
+    const branchId = await this.getPtUserBranch(user);
+    if (!branchId) {
+      throw new BadRequestException('Không tìm thấy chi nhánh làm việc của PT');
+    }
+
+    const pkg = await this.prisma.customer_pt_packages.findFirst({
+      where: {
+        id: dto.customerPtPackageId,
+        tenant_id: tenantId,
+        pt_user_id: user.id,
+        customer_id: dto.customerId,
+        status: 'ACTIVE',
+      },
+    });
+
+    if (!pkg) {
+      throw new BadRequestException('Gói PT của học viên không hợp lệ hoặc đã hết hạn/không phải do bạn phụ trách');
+    }
+
+    if (pkg.expiry_date && new Date() > new Date(pkg.expiry_date)) {
+      throw new BadRequestException('Gói PT của học viên đã hết hạn sử dụng');
+    }
+
+    // BR-PTB-001: Active Membership check
+    const activeMembership = await this.prisma.membership.findFirst({
+      where: {
+        tenant_id: tenantId,
+        customer_id: dto.customerId,
+        status: 'ACTIVE',
+      },
+    });
+    if (!activeMembership) {
+      throw new BadRequestException('Học viên chưa có thẻ Membership Gym đang hoạt động để đặt lịch PT');
+    }
+
+    // BR-PTB-006: Session capacity check
+    const reservedBookingsCount = await this.prisma.ptBooking.count({
+      where: {
+        tenant_id: tenantId,
+        customer_pt_package_id: pkg.id,
+        status: { in: ['PENDING', 'CONFIRMED', 'SCHEDULED'] },
+      },
+    });
+    const completedCount = pkg.used_sessions ?? 0;
+    const availableToBook = pkg.total_sessions - completedCount - reservedBookingsCount;
+    if (availableToBook <= 0) {
+      throw new BadRequestException(
+        `Học viên đã giữ chỗ hết số buổi của gói PT (${pkg.total_sessions} buổi: ${completedCount} đã hoàn thành, ${reservedBookingsCount} đang xếp lịch).`,
+      );
+    }
+
+    const scheduledStart = new Date(dto.scheduledStart);
+    const scheduledEnd = new Date(dto.scheduledEnd);
+    if (Number.isNaN(scheduledStart.getTime()) || Number.isNaN(scheduledEnd.getTime()) || scheduledStart >= scheduledEnd) {
+      throw new BadRequestException('Thời gian bắt đầu và kết thúc không hợp lệ');
+    }
+    if (scheduledStart < new Date()) {
+      throw new BadRequestException('Không thể đặt lịch tập trong quá khứ');
+    }
+
+    // BR-PTB-004 & BR-PTB-014: Overlap checks
+    const ptConflict = await this.prisma.ptBooking.findFirst({
+      where: {
+        tenant_id: tenantId,
+        pt_user_id: user.id,
+        status: { in: ['PENDING', 'CONFIRMED', 'SCHEDULED'] },
+        scheduled_start: { lt: scheduledEnd },
+        scheduled_end: { gt: scheduledStart },
+      },
+    });
+    if (ptConflict) {
+      throw new BadRequestException('Bạn đã có một ca dạy khác trùng với khung giờ này');
+    }
+
+    const customerConflict = await this.prisma.ptBooking.findFirst({
+      where: {
+        tenant_id: tenantId,
+        customer_id: dto.customerId,
+        status: { in: ['PENDING', 'CONFIRMED', 'SCHEDULED'] },
+        scheduled_start: { lt: scheduledEnd },
+        scheduled_end: { gt: scheduledStart },
+      },
+    });
+    if (customerConflict) {
+      throw new BadRequestException('Học viên đã có một ca tập PT khác trùng khung giờ này');
+    }
+
+    // PT-initiated booking is created directly as SCHEDULED
+    const booking = await this.prisma.ptBooking.create({
+      data: {
+        tenant_id: tenantId,
+        branch_id: branchId,
+        pt_user_id: user.id,
+        customer_id: dto.customerId,
+        customer_pt_package_id: pkg.id,
+        scheduled_start: scheduledStart,
+        scheduled_end: scheduledEnd,
+        status: 'SCHEDULED',
+        session_note: dto.sessionNote,
+        created_by: user.id,
+      },
+    });
+
+    await this.notifyCustomerOfBooking(tenantId, dto.customerId, {
+      eventCode: 'PT_BOOKING_CREATED_BY_PT',
+      entityId: booking.id,
+      title: 'PT đã xếp lịch tập mới cho bạn',
+      body: `Lịch tập lúc ${formatBookingTime(scheduledStart)} đã được tạo thành công.`,
+      targetPath: '/pt',
+    });
+
+    return booking;
   }
 
   // BR-PT-004: Client Data Privacy — PT only sees clients assigned to them
@@ -328,20 +600,37 @@ export class PtService {
       orderBy: { created_at: 'desc' },
     });
 
-    return packages.map((pkg) => ({
-      packageId: pkg.id,
-      planName: pkg.plan_name_snapshot,
-      totalSessions: pkg.total_sessions,
-      usedSessions: pkg.used_sessions,
-      remainingSessions: pkg.remaining_sessions ?? (pkg.total_sessions - pkg.used_sessions),
-      startDate: pkg.start_date,
-      expiryDate: pkg.expiry_date,
-      packageStatus: pkg.status,
-      customer: {
-        ...pkg.customers,
-        isMembershipActive: pkg.customers.memberships.length > 0, // BR-PT-003
+    const completedCounts = await this.prisma.ptBooking.groupBy({
+      by: ['customer_pt_package_id'],
+      where: {
+        tenant_id: tenantId,
+        pt_user_id: ptUserId,
+        status: 'COMPLETED',
       },
-    }));
+      _count: { id: true },
+    });
+    const completedMap = new Map(
+      completedCounts.map((c) => [c.customer_pt_package_id, c._count.id]),
+    );
+
+    return packages.map((pkg) => {
+      const usedSessions = completedMap.get(pkg.id) ?? 0;
+      const remainingSessions = Math.max(0, pkg.total_sessions - usedSessions);
+      return {
+        packageId: pkg.id,
+        planName: pkg.plan_name_snapshot,
+        totalSessions: pkg.total_sessions,
+        usedSessions,
+        remainingSessions,
+        startDate: pkg.start_date,
+        expiryDate: pkg.expiry_date,
+        packageStatus: pkg.status,
+        customer: {
+          ...pkg.customers,
+          isMembershipActive: pkg.customers.memberships.length > 0, // BR-PT-003
+        },
+      };
+    });
   }
 
   async getClientDetail(user: any, customerId: string) {
@@ -368,7 +657,9 @@ export class PtService {
     });
 
     if (!ptPackage) {
-      throw new ForbiddenException('Bạn không có quyền truy cập thông tin học viên này');
+      throw new ForbiddenException(
+        'Bạn không có quyền truy cập thông tin học viên này',
+      );
     }
 
     return ptPackage;
@@ -377,11 +668,17 @@ export class PtService {
   async createWorkoutLog(user: any, dto: CreateWorkoutLogDto) {
     const tenantId = this.getTenantId(user);
     const pkg = await this.prisma.customer_pt_packages.findFirst({
-      where: { id: dto.customerPtPackageId, tenant_id: tenantId, pt_user_id: user.id },
+      where: {
+        id: dto.customerPtPackageId,
+        tenant_id: tenantId,
+        pt_user_id: user.id,
+      },
     });
 
     if (!pkg) {
-      throw new ForbiddenException('Bạn không có quyền ghi nhật ký cho gói tập này');
+      throw new ForbiddenException(
+        'Bạn không có quyền ghi nhật ký cho gói tập này',
+      );
     }
 
     const notePayload = JSON.stringify({

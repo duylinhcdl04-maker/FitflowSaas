@@ -17,6 +17,7 @@ import {
   CaretLeft,
   CaretRight,
   Eye,
+  LockKey,
 } from '@phosphor-icons/react';
 import {
   getManagerCustomers,
@@ -26,9 +27,11 @@ import {
   toggleCustomerStatus,
   manualCheckin,
   manualCheckout,
+  resetCustomerPassword,
 } from '../../api/manager';
 import Card from '../../../owner/components/Card';
 import Button from '../../../owner/components/Button';
+import { showConfirm, showToast } from '../../../owner/utils/swal';
 import { inputClass } from '../../../owner/components/FormField';
 import { Skeleton } from '../../../owner/components/Skeleton';
 import Callout from '../../../owner/components/Callout';
@@ -110,6 +113,25 @@ export default function ManagerCustomersPage() {
     onError: (err: any) => {
       setError(err?.response?.data?.message || 'Không thể đăng ký khách hàng');
       setSuccess(null);
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (customerId: string) => resetCustomerPassword(customerId),
+    onSuccess: (res) => {
+      const msg = res.message || 'Đã cấp lại mật khẩu tạm thời thành công!';
+      setSuccess(msg);
+      setError(null);
+      showToast(msg, 'success');
+      queryClient.invalidateQueries({ queryKey: ['manager-customers-list'] });
+      setTimeout(() => setSuccess(null), 4000);
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message || 'Không thể cấp lại mật khẩu';
+      setError(msg);
+      setSuccess(null);
+      showToast(msg, 'error');
+      setTimeout(() => setError(null), 4000);
     },
   });
 
@@ -522,6 +544,30 @@ export default function ManagerCustomersPage() {
                                 title="Xem mã QR Hội viên"
                               >
                                 <QrCode size={16} />
+                              </button>
+
+                              {/* Reset MK */}
+                              <button
+                                onClick={async () => {
+                                  if (!c.email) {
+                                    showToast('Hội viên chưa có email. Vui lòng bổ sung email trước khi cấp lại mật khẩu.', 'warning');
+                                    return;
+                                  }
+                                  const confirmed = await showConfirm({
+                                    title: '🔑 Cấp lại mật khẩu hội viên',
+                                    text: `Bạn có chắc muốn sinh mật khẩu tạm ngẫu nhiên mới cho hội viên ${c.full_name} và gửi trực tiếp tới email ${c.email}?`,
+                                    confirmButtonText: 'Đồng ý cấp lại',
+                                    cancelButtonText: 'Hủy bỏ',
+                                    icon: 'question',
+                                  });
+                                  if (confirmed) {
+                                    resetPasswordMutation.mutate(c.id);
+                                  }
+                                }}
+                                className="h-8 w-8 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 flex items-center justify-center transition-colors cursor-pointer"
+                                title="Cấp lại mật khẩu & gửi Email về Gmail cho hội viên"
+                              >
+                                <LockKey size={16} />
                               </button>
 
                               {/* Gán gói */}

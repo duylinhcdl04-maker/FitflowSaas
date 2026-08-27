@@ -50,8 +50,12 @@ export default function StaffDashboardPage() {
 
   const statCards = [
     {
-      title: 'Lượt Check-in hôm nay',
-      value: overview?.kpis?.todayCheckins ?? 0,
+      // BR-STAT-001: "Khách đã đến" (Daily Unique Visitors) — một khách chỉ tính một lần dù
+      // check-in nhiều lượt trong ngày. Số LƯỢT check-in (todayCheckins) hiển thị ở subtitle,
+      // đây là 2 chỉ số khác nhau, không được gộp làm một.
+      title: 'Khách đã đến hôm nay',
+      value: overview?.kpis?.dailyUniqueVisitors ?? 0,
+      subtitle: `${overview?.kpis?.todayCheckins ?? 0} lượt Check-in`,
       icon: UserCheck,
       color: 'from-blue-500 to-indigo-600',
       bgLight: 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400',
@@ -131,6 +135,9 @@ export default function StaffDashboardPage() {
                 <p className="font-display text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
                   {overviewLoading ? '...' : card.value}
                 </p>
+                {'subtitle' in card && (
+                  <p className="mt-0.5 text-[11px] text-slate-400 dark:text-zinc-500">{card.subtitle}</p>
+                )}
               </div>
               <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${card.bgLight}`}>
                 <Icon size={26} />

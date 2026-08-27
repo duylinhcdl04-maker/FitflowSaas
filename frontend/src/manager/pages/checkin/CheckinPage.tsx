@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { QrCode, SignOut, ArrowCounterClockwise, MagnifyingGlass, Check } from '@phosphor-icons/react';
-import { getCurrentlyInGym, getManagerCustomers, manualCheckin, manualCheckout, undoCheckin } from '../../api/manager';
+import { QrCode, SignOut, ArrowCounterClockwise, MagnifyingGlass, Check, Scan } from '@phosphor-icons/react';
+import { getCurrentlyInGym, getManagerCustomers, manualCheckin, manualCheckout, qrScanCheckin, undoCheckin } from '../../api/manager';
 import { apiErrorMessage } from '../../../owner/api/client';
 import Card from '../../../owner/components/Card';
 import Button from '../../../owner/components/Button';
@@ -12,6 +12,7 @@ import { Skeleton } from '../../../owner/components/Skeleton';
 export default function ManagerCheckinPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [qrInput, setQrInput] = useState('');
   const [undoModalOpen, setUndoModalOpen] = useState(false);
   const [selectedAttendanceId, setSelectedAttendanceId] = useState<string | null>(null);
   const [undoReason, setUndoReason] = useState('');
@@ -57,6 +58,29 @@ export default function ManagerCheckinPage() {
     },
     onError: (err) => setActionError(apiErrorMessage(err, 'Không thể thực hiện Check-out')),
   });
+
+  const qrScanMutation = useMutation({
+    mutationFn: (token: string) => qrScanCheckin(token),
+    onSuccess: (data) => {
+      setActionSuccess(
+        data.action === 'CHECKED_IN'
+          ? `Đã Check-in cho ${data.customer.full_name} qua mã QR!`
+          : `Đã Check-out cho ${data.customer.full_name} qua mã QR!`,
+      );
+      setActionError(null);
+      setQrInput('');
+      queryClient.invalidateQueries({ queryKey: ['manager-currently-in-gym'] });
+      queryClient.invalidateQueries({ queryKey: ['manager-dashboard-overview'] });
+      setTimeout(() => setActionSuccess(null), 3000);
+    },
+    onError: (err) => setActionError(apiErrorMessage(err, 'Mã QR không hợp lệ hoặc đã hết hạn')),
+  });
+
+  function handleQrSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!qrInput.trim() || qrScanMutation.isPending) return;
+    qrScanMutation.mutate(qrInput.trim());
+  }
 
   const undoMutation = useMutation({
     mutationFn: () => undoCheckin(selectedAttendanceId!, undoReason),
@@ -104,6 +128,29 @@ export default function ManagerCheckinPage() {
           <Check size={18} /> {actionSuccess}
         </div>
       )}
+
+      {/* DYNAMIC QR SCAN — consumes the customer's Customer Portal QR (auto-rotates ~45s) */}
+      <Card className="max-w-2xl border-emerald-200/70 dark:border-emerald-900/40">
+        <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-50 mb-3 flex items-center gap-2">
+          <Scan size={20} className="text-emerald-600 dark:text-emerald-400" /> Quét mã QR hội viên
+        </h2>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+          Quét (hoặc dán) mã QR động từ ứng dụng của hội viên — hệ thống tự động Check-in nếu đang ở ngoài, Check-out nếu đang ở trong phòng tập.
+        </p>
+        <form onSubmit={handleQrSubmit} className="flex gap-2">
+          <input
+            type="text"
+            autoFocus
+            className={inputClass}
+            placeholder="Quét mã QR hoặc dán mã tại đây..."
+            value={qrInput}
+            onChange={(e) => setQrInput(e.target.value)}
+          />
+          <Button type="submit" disabled={qrScanMutation.isPending || !qrInput.trim()}>
+            {qrScanMutation.isPending ? 'Đang xử lý...' : 'Xác nhận'}
+          </Button>
+        </form>
+      </Card>
 
       {/* CHECK-IN SEARCH & QUICK DESK */}
       <Card className="max-w-2xl">

@@ -18,6 +18,10 @@ export class QueryCustomersDto {
   branchId?: string;
 
   @IsOptional()
+  @IsIn(['MEMBER', 'GUEST'])
+  type?: 'MEMBER' | 'GUEST';
+
+  @IsOptional()
   page?: number;
 
   @IsOptional()

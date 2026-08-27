@@ -17,7 +17,15 @@ export interface CheckinRow {
 }
 
 export interface CheckinOverview {
-  today: { total: number; members: number; guests: number; currentlyInGym: number };
+  today: {
+    // BR-STAT-001: "Khách đã đến hôm nay" — một khách chỉ tính một lần dù có nhiều lượt.
+    dailyUniqueVisitors: number;
+    // "Tổng lượt Check-in" — mỗi lượt vào tính riêng, khác với dailyUniqueVisitors ở trên.
+    totalCheckInEvents: number;
+    memberVisitors: number;
+    guestVisitors: number;
+    currentlyInGym: number;
+  };
   list: Paginated<CheckinRow>;
 }
 

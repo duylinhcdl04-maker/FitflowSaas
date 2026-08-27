@@ -22,6 +22,7 @@ import FirstLoginPasswordModal from '../../manager/components/FirstLoginPassword
 import QuickSearchModal from '../../manager/components/QuickSearchModal';
 import { useThemeStore } from '../../store/theme-store';
 import { joinBranch } from '../../lib/socket';
+import NotificationBell from '../../owner/components/NotificationBell';
 
 export default function StaffShell() {
   const user = useAuthStore((s) => s.user);
@@ -127,6 +128,9 @@ export default function StaffShell() {
               <Clock size={14} className="text-emerald-600 dark:text-emerald-400 animate-pulse" />
               <span>{currentTime.toLocaleTimeString('vi-VN')}</span>
             </div>
+
+            {/* Notification Bell */}
+            <NotificationBell basePath="/staff" />
 
             {/* Theme Toggle */}
             <button

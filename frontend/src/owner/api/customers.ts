@@ -10,19 +10,24 @@ export interface CustomerSummary {
   currentMembership: { packageName: string; status: string; endDate: string } | null;
 }
 
-export interface Paginated<T> {
-  items: T[];
-  page: number;
-  pageSize: number;
+export interface CustomerStats {
   total: number;
-  totalPages: number;
+  memberCount: number;
+  guestCount: number;
+  newThisMonth: number;
+}
+
+export interface PaginatedCustomers<T> extends Paginated<T> {
+  stats?: CustomerStats;
 }
 
 export interface QueryCustomers {
   search?: string;
   status?: 'ACTIVE' | 'INACTIVE';
   branchId?: string;
+  type?: 'MEMBER' | 'GUEST';
   page?: number;
+  pageSize?: number;
 }
 
 export interface CustomerDetail {
@@ -44,7 +49,7 @@ export interface CustomerDetail {
 }
 
 export function listCustomers(query: QueryCustomers) {
-  return apiClient.get<Paginated<CustomerSummary>>('/owner/customers', { params: query }).then((res) => res.data);
+  return apiClient.get<PaginatedCustomers<CustomerSummary>>('/owner/customers', { params: query }).then((res) => res.data);
 }
 
 export function getCustomer(id: string) {

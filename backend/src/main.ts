@@ -1,11 +1,17 @@
 import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Default Express JSON body limit (100kb) is too small for the Customer Portal's
+  // face-consent upload (a photo sent as a base64 data URI in the JSON body — see
+  // customer.service.ts#submitFaceConsent). Raised app-wide rather than per-route.
+  app.useBodyParser('json', { limit: '10mb' });
 
   app.use(cookieParser());
 
@@ -23,7 +29,9 @@ async function bootstrap() {
         callback(null, true);
         return;
       }
-      const isLocalhost = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
+      const isLocalhost =
+        origin.startsWith('http://localhost:') ||
+        origin.startsWith('http://127.0.0.1:');
       if (isLocalhost || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {

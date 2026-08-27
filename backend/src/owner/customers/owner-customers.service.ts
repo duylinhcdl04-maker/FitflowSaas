@@ -12,8 +12,16 @@ export class OwnerCustomersService {
   async list(tenantId: string, query: QueryCustomersDto) {
     const { page, pageSize, skip, take } = parsePagination(query);
 
+    const typeFilter =
+      query.type === 'GUEST'
+        ? { customer_code: { startsWith: 'GUEST' } }
+        : query.type === 'MEMBER'
+        ? { NOT: { customer_code: { startsWith: 'GUEST' } } }
+        : {};
+
     const where = {
       tenant_id: tenantId,
+      ...typeFilter,
       ...(query.status ? { status: query.status } : {}),
       ...(query.branchId ? { home_branch_id: query.branchId } : {}),
       ...(query.search
@@ -26,12 +34,17 @@ export class OwnerCustomersService {
                 },
               },
               { phone: { contains: query.search } },
+              { customer_code: { contains: query.search, mode: 'insensitive' as const } },
             ],
           }
         : {}),
     };
 
-    const [items, total] = await Promise.all([
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const [items, total, memberCount, guestCount, newThisMonth] = await Promise.all([
       this.prisma.customer.findMany({
         where,
         include: {
@@ -43,6 +56,7 @@ export class OwnerCustomersService {
             select: {
               package_name_snapshot: true,
               status: true,
+              start_date: true,
               end_date: true,
             },
           },
@@ -52,9 +66,21 @@ export class OwnerCustomersService {
         take,
       }),
       this.prisma.customer.count({ where }),
+      this.prisma.customer.count({
+        where: { tenant_id: tenantId, NOT: { customer_code: { startsWith: 'GUEST' } } },
+      }),
+      this.prisma.customer.count({
+        where: { tenant_id: tenantId, customer_code: { startsWith: 'GUEST' } },
+      }),
+      this.prisma.customer.count({
+        where: {
+          tenant_id: tenantId,
+          created_at: { gte: startOfMonth },
+        },
+      }),
     ]);
 
-    return paginate(
+    const paginated = paginate(
       items.map((c) => ({
         id: c.id,
         customerCode: c.customer_code,
@@ -66,6 +92,7 @@ export class OwnerCustomersService {
           ? {
               packageName: c.memberships[0].package_name_snapshot,
               status: c.memberships[0].status,
+              startDate: c.memberships[0].start_date,
               endDate: c.memberships[0].end_date,
             }
           : null,
@@ -74,6 +101,16 @@ export class OwnerCustomersService {
       page,
       pageSize,
     );
+
+    return {
+      ...paginated,
+      stats: {
+        total: memberCount + guestCount,
+        memberCount,
+        guestCount,
+        newThisMonth,
+      },
+    };
   }
 
   async get(tenantId: string, id: string) {

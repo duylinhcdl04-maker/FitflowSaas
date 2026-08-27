@@ -19,11 +19,33 @@ const ACTIVE_BOOKING_STATUSES = ['SCHEDULED', 'COMPLETED'] as const;
 export class OwnerPtService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listPts(tenantId: string) {
+  async listPts(tenantId: string, branchId?: string) {
     const profiles = await this.prisma.ptProfile.findMany({
-      where: { tenant_id: tenantId },
+      where: {
+        tenant_id: tenantId,
+        ...(branchId
+          ? {
+              users: {
+                user_branches: {
+                  some: { branch_id: branchId },
+                },
+              },
+            }
+          : {}),
+      },
       include: {
-        users: { select: { id: true, full_name: true, status: true } },
+        users: {
+          select: {
+            id: true,
+            full_name: true,
+            status: true,
+            user_branches: {
+              include: {
+                branches: { select: { name: true } },
+              },
+            },
+          },
+        },
       },
       orderBy: { created_at: 'asc' },
     });
@@ -41,6 +63,7 @@ export class OwnerPtService {
               tenant_id: tenantId,
               pt_user_id: p.user_id,
               status: 'ACTIVE',
+              ...(branchId ? { branch_id: branchId } : {}),
             },
           }),
           this.prisma.ptBooking.count({
@@ -49,6 +72,7 @@ export class OwnerPtService {
               pt_user_id: p.user_id,
               scheduled_start: { gte: todayStart, lt: todayEnd },
               status: { in: [...ACTIVE_BOOKING_STATUSES] },
+              ...(branchId ? { branch_id: branchId } : {}),
             },
           }),
         ]);
@@ -58,6 +82,7 @@ export class OwnerPtService {
           status: p.users.status,
           specialties: p.specialties,
           experienceYears: p.experience_years,
+          branchNames: p.users.user_branches.map((ub) => ub.branches.name),
           activeCustomers,
           todaySessions,
         };
@@ -65,10 +90,24 @@ export class OwnerPtService {
     );
   }
 
-  listPackagePlans(tenantId: string, status?: string) {
+  listPackagePlans(tenantId: string, status?: string, branchId?: string) {
     return this.prisma.pt_package_plans
       .findMany({
-        where: { tenant_id: tenantId, ...(status ? { status } : {}) },
+        where: {
+          tenant_id: tenantId,
+          ...(status ? { status } : {}),
+          ...(branchId
+            ? {
+                pt_profiles: {
+                  users: {
+                    user_branches: {
+                      some: { branch_id: branchId },
+                    },
+                  },
+                },
+              }
+            : {}),
+        },
         include: {
           pt_profiles: { include: { users: { select: { full_name: true } } } },
         },

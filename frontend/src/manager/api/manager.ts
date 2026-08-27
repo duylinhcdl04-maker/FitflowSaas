@@ -19,6 +19,7 @@ export interface ManagerDashboardOverview {
     currentlyInGymMembers: number;
     currentlyInGymGuests: number;
     todayCheckins: number;
+    dailyUniqueVisitors: number;
     undoCheckins: number;
     todayRevenue: number;
     newMembershipsCount: number;
@@ -27,11 +28,26 @@ export interface ManagerDashboardOverview {
     todayPtSessions: { total: number; completed: number; upcoming: number; cancelled: number };
   };
   actionCenter: Array<{
-    id: string;
+    id: 'pending-payments' | 'expiring-memberships' | 'at-risk-members';
     priority: 'CRITICAL' | 'WARNING' | 'INFORMATION';
     title: string;
     description: string;
     count: number;
+    items: Array<{
+      id: string;
+      customerName: string;
+      customerPhone: string | null;
+      // pending-payments
+      amount?: number;
+      method?: string;
+      createdAt?: string;
+      // expiring-memberships & at-risk-members
+      packageName?: string;
+      startDate?: string;
+      endDate?: string;
+      // at-risk-members
+      lastVisitAt?: string | null;
+    }>;
   }>;
   hourlyCheckins: Array<{ hour: string; count: number }>;
   revenueBySource: { membership: number; pt: number; guest: number };
@@ -65,6 +81,44 @@ export function getManagerDashboardOverview(branchId?: string) {
     .then((res) => res.data);
 }
 
+export interface ManagerDashboardPerformance {
+  range: { from: string; to: string };
+  revenue: {
+    total: number;
+    growthPct: number | null;
+    trend: Array<{ date: string; revenue: number }>;
+    bySource: { membership: number; pt: number; guest: number };
+  };
+  members: {
+    newCount: number;
+    renewedCount: number;
+    expiredCount: number;
+    atRiskCount: number;
+    growthPct: number | null;
+  };
+  pt: {
+    totalSessions: number;
+    completedSessions: number;
+    cancelledSessions: number;
+    cancelRate: number;
+    activeTrainersCount: number;
+    growthPct: number | null;
+  };
+}
+
+export interface ManagerDashboardPerformanceQuery {
+  branchId?: string;
+  from?: string;
+  to?: string;
+  groupBy?: 'day' | 'week' | 'month';
+}
+
+export function getManagerDashboardPerformance(query: ManagerDashboardPerformanceQuery) {
+  return apiClient
+    .get<ManagerDashboardPerformance>('/manager/dashboard/performance', { params: query })
+    .then((res) => res.data);
+}
+
 export function getCurrentlyInGym(branchId?: string) {
   return apiClient
     .get<CurrentlyInGymItem[]>('/manager/checkin/currently-in-gym', { params: { branchId } })
@@ -87,6 +141,45 @@ export function undoCheckin(attendanceId: string, reason: string) {
   return apiClient
     .post('/manager/checkin/undo', { attendanceId, reason })
     .then((res) => res.data);
+}
+
+// Full customer payload the QR-scan endpoint hands back — same shape
+// MemberDetailModal.tsx already expects, so a scan result can be passed straight
+// into "Xem chi tiết" with no extra fetch.
+export interface QrScanCustomer {
+  id: string;
+  customer_code: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  gender: string | null;
+  avatar_url: string | null;
+  status: string;
+  date_of_birth: string | null;
+  address: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  face_consent_at: string | null;
+  memberships: {
+    id: string;
+    package_name_snapshot: string;
+    status: string;
+    start_date: string;
+    end_date: string;
+    branch_id: string;
+    branch_access_scope_snapshot: string;
+  }[];
+}
+
+export interface QrScanResult {
+  action: 'CHECKED_IN' | 'CHECKED_OUT';
+  customer: QrScanCustomer;
+}
+
+// Consumes a customer's dynamic QR (Customer Portal, refreshes every ~45s) — toggles
+// check-in/check-out for whoever the token belongs to. See customer.service.ts#getQrToken.
+export function qrScanCheckin(token: string) {
+  return apiClient.post<QrScanResult>('/manager/checkin/qr-scan', { token }).then((res) => res.data);
 }
 
 export function getManagerCustomers(
@@ -209,6 +302,10 @@ export function registerCustomerWithAccount(payload: {
   defaultPassword?: string;
 }) {
   return apiClient.post('/manager/customers/register-with-account', payload).then((res) => res.data);
+}
+
+export function resetCustomerPassword(customerId: string) {
+  return apiClient.post<{ success: boolean; message: string }>(`/manager/customers/${customerId}/reset-password`).then((res) => res.data);
 }
 
 export interface RequiresPaymentResponse {

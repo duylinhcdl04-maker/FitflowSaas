@@ -52,6 +52,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       if (payload.tenantId) {
         client.join(`tenant:${payload.tenantId}`);
       }
+      // Personal room — lets other services push a notification straight to this one
+      // user (bell badge) without broadcasting to the whole tenant/branch.
+      client.join(`user:${payload.sub}`);
     } catch {
       this.logger.warn(`Socket connection rejected: invalid token (${client.id})`);
       client.disconnect();
@@ -77,5 +80,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   /** Push an event to everyone in the tenant, regardless of branch. */
   emitToTenant(tenantId: string, event: string, payload: unknown) {
     this.server?.to(`tenant:${tenantId}`).emit(event, payload);
+  }
+
+  /** Push an event to one specific user (any tab/device they have open) — e.g. a new notification. */
+  emitToUser(userId: string, event: string, payload: unknown) {
+    this.server?.to(`user:${userId}`).emit(event, payload);
   }
 }

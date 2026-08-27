@@ -14,6 +14,12 @@ export class ManualCheckinDto {
   note?: string;
 }
 
+export class QrScanCheckinDto {
+  @IsString({ message: 'Mã QR không hợp lệ' })
+  @IsNotEmpty({ message: 'Vui lòng quét hoặc nhập mã QR' })
+  token!: string;
+}
+
 export class UndoCheckinDto {
   @IsString({ message: 'Attendance ID không hợp lệ' })
   @IsNotEmpty({ message: 'Vui lòng chọn lượt check-in' })
@@ -176,7 +182,9 @@ export class CreateBranchStaffDto {
   fullName!: string;
 
   @IsString({ message: 'Email không hợp lệ' })
-  @IsNotEmpty({ message: 'Vui lòng nhập email làm tên đăng nhập cho nhân viên' })
+  @IsNotEmpty({
+    message: 'Vui lòng nhập email làm tên đăng nhập cho nhân viên',
+  })
   email!: string;
 
   @IsOptional()
@@ -198,7 +206,9 @@ export class RegisterCustomerWithAccountDto {
   fullName!: string;
 
   @IsString({ message: 'Email không hợp lệ' })
-  @IsNotEmpty({ message: 'Vui lòng nhập email làm tên đăng nhập cho khách hàng' })
+  @IsNotEmpty({
+    message: 'Vui lòng nhập email làm tên đăng nhập cho khách hàng',
+  })
   email!: string;
 
   @IsOptional()
@@ -271,4 +281,3 @@ export class SellPtPackageDto {
   @IsString()
   paymentMethod?: string;
 }
-

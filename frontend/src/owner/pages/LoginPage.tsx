@@ -40,7 +40,9 @@ export default function LoginPage() {
     mutationFn: () => login(email, password),
     onSuccess: async (data) => {
       const me = await establishSession(data.accessToken);
-      if (me.roles.includes('STAFF') && !me.roles.includes('OWNER') && !me.roles.includes('BRANCH_MANAGER')) {
+      if (me.roles.includes('CUSTOMER') && me.roles.length === 1) {
+        navigate('/customer', { replace: true });
+      } else if (me.roles.includes('STAFF') && !me.roles.includes('OWNER') && !me.roles.includes('BRANCH_MANAGER')) {
         navigate('/staff', { replace: true });
       } else if (me.roles.includes('PT') && !me.roles.includes('OWNER') && !me.roles.includes('BRANCH_MANAGER')) {
         navigate('/pt', { replace: true });

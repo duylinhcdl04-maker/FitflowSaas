@@ -15,6 +15,43 @@ html {
   scroll-behavior: smooth;
 }
 
+/* `scrollbar-none` was already referenced in a few places (e.g. StaffShell's tab strip)
+   but never actually defined — Tailwind v4 has no built-in utility for it, so those
+   scrollable rows were silently falling back to the browser's native scrollbar
+   (visible up/down arrow buttons on Windows). Defining it here fixes every existing
+   usage at once, plus makes it available anywhere else a scrollbar needs hiding. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Thin, theme-aware scrollbar for tall scrollable panels (modals, dropdowns) where
+   hiding the scrollbar entirely would remove a useful affordance. */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: theme(--color-stone-300) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: theme(--color-stone-300);
+    border-radius: 999px;
+  }
+  .dark & {
+    scrollbar-color: theme(--color-zinc-700) transparent;
+  }
+  .dark &::-webkit-scrollbar-thumb {
+    background-color: theme(--color-zinc-700);
+  }
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -67,3 +104,84 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Custom react-datepicker styling */
+.react-datepicker-wrapper {
+  width: 100%;
+}
+
+.custom-datepicker-calendar {
+  border-radius: 1.25rem !important;
+  border: 1px solid #e7e5e4 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  font-family: var(--font-sans) !important;
+  padding: 0.5rem !important;
+  background-color: #ffffff !important;
+}
+
+.dark .custom-datepicker-calendar {
+  border-color: #27272a !important;
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+}
+
+.react-datepicker__header {
+  background-color: transparent !important;
+  border-bottom: 1px solid #f5f5f4 !important;
+  padding-top: 0.75rem !important;
+}
+
+.dark .react-datepicker__header {
+  border-bottom-color: #27272a !important;
+}
+
+.react-datepicker__current-month,
+.react-datepicker-time__header,
+.react-datepicker-year-header {
+  font-weight: 700 !important;
+  font-size: 0.875rem !important;
+  color: #18181b !important;
+}
+
+.dark .react-datepicker__current-month {
+  color: #f4f4f5 !important;
+}
+
+.react-datepicker__day-name {
+  color: #71717a !important;
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+}
+
+.dark .react-datepicker__day-name {
+  color: #a1a1aa !important;
+}
+
+.react-datepicker__day {
+  border-radius: 0.75rem !important;
+  font-weight: 600 !important;
+  font-size: 0.8125rem !important;
+  transition: all 150ms ease !important;
+}
+
+.dark .react-datepicker__day {
+  color: #e4e4e7 !important;
+}
+
+.react-datepicker__day:hover {
+  background-color: #ecfdf5 !important;
+  color: #047857 !important;
+}
+
+.dark .react-datepicker__day:hover {
+  background-color: #064e3b !important;
+  color: #6ee7b7 !important;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected {
+  background-color: #059669 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+

@@ -1,456 +1,718 @@
-import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowClockwise,
+  ArrowRight,
+  Barbell,
   CheckCircle,
+  ChartBar,
+  Hourglass,
+  PersonSimpleRun,
 } from '@phosphor-icons/react';
 import {
-  getManagerDashboardOverview,
-  getCurrentlyInGym,
-} from '../api/manager';
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { getManagerDashboardOverview, getManagerDashboardPerformance, type ManagerDashboardOverview } from '../api/manager';
+import { useRealtimeInvalidate } from '../../lib/useRealtimeInvalidate';
+import Card from '../../owner/components/Card';
+import KpiCard from '../../owner/components/KpiCard';
+import RevenueChart from '../../owner/components/RevenueChart';
+import { Skeleton } from '../../owner/components/Skeleton';
+import Modal from '../../owner/components/Modal';
+import Button from '../../owner/components/Button';
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Tiền mặt',
+  VIETQR: 'Chuyển khoản (VietQR)',
+  CREDIT_CARD: 'Thẻ',
+  MIXED: 'Kết hợp',
+  OTHER: 'Khác',
+};
+
+const QUEUE_TARGET_URL: Record<ManagerDashboardOverview['actionCenter'][number]['id'], string> = {
+  'pending-payments': '/manager/memberships',
+  'expiring-memberships': '/manager/customers',
+  'at-risk-members': '/manager/customers',
+};
+
+const RANGE_OPTIONS = [
+  { key: 'today', label: 'Hôm nay', days: 0 },
+  { key: '7d', label: '7 ngày qua', days: 6 },
+  { key: 'month', label: 'Tháng này', days: 29 },
+] as const;
+
+const PRIORITY_DOT: Record<string, string> = {
+  CRITICAL: 'bg-red-500',
+  WARNING: 'bg-amber-500',
+  INFORMATION: 'bg-blue-500',
+};
+
+function formatMoney(n: number) {
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n);
+}
+
+const AVATAR_GRADIENTS = [
+  'from-emerald-500 to-teal-700 text-white',
+  'from-blue-500 to-indigo-700 text-white',
+  'from-violet-500 to-purple-700 text-white',
+  'from-amber-500 to-orange-700 text-white',
+  'from-rose-500 to-pink-700 text-white',
+];
+
+function getAvatarGradient(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+}
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+function formatGroupLabel(dateStr: string, groupBy: 'day' | 'week' | 'month') {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+  if (groupBy === 'day') return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  if (groupBy === 'week') return 'T.' + date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  return date.toLocaleDateString('vi-VN', { month: '2-digit', year: '2-digit' });
+}
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 14 },
+  show: (i: number) => ({ opacity: 1, y: 0, transition: { delay: i * 0.05, duration: 0.35, ease: 'easeOut' as const } }),
+};
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const [dateRange, setDateRange] = useState<string>('month');
+  const [range, setRange] = useState<(typeof RANGE_OPTIONS)[number]>(RANGE_OPTIONS[1]);
+  const [groupBy, setGroupBy] = useState<'day' | 'week' | 'month'>('day');
   const [activeTab, setActiveTab] = useState<'revenue' | 'members' | 'pt'>('revenue');
-  const [lastUpdatedTime, setLastUpdatedTime] = useState<string>('vừa xong');
+  const [lastUpdatedLabel, setLastUpdatedLabel] = useState('vừa xong');
+  const [selectedQueueItem, setSelectedQueueItem] = useState<ManagerDashboardOverview['actionCenter'][number] | null>(null);
 
+  const from = new Date();
+  from.setDate(from.getDate() - range.days);
+  from.setHours(0, 0, 0, 0);
+
+  // TẦNG 1 — real-time, KHÔNG chịu ảnh hưởng của bộ lọc ngày (đúng như nhãn hiển thị).
   const { data: overview, isLoading, refetch } = useQuery({
     queryKey: ['manager-dashboard-overview'],
     queryFn: () => getManagerDashboardOverview(),
-    refetchInterval: 30000, // 30s polling theo Spec BR-DASH-02
-  });
-
-  const { data: _currentlyInGymList = [], refetch: refetchCurrentlyInGym } = useQuery({
-    queryKey: ['manager-currently-in-gym'],
-    queryFn: () => getCurrentlyInGym(),
     refetchInterval: 30000,
   });
 
+  // TẦNG 2 — dữ liệu thật theo khoảng ngày đã chọn (trước đây là số liệu cứng, không đổi theo bộ lọc).
+  const { data: performance, isLoading: isPerformanceLoading } = useQuery({
+    queryKey: ['manager-dashboard-performance', range.key, groupBy],
+    queryFn: () =>
+      getManagerDashboardPerformance({
+        from: from.toISOString(),
+        to: new Date().toISOString(),
+        groupBy,
+      }),
+  });
+
   useEffect(() => {
-    const timer = setInterval(() => {
-      setLastUpdatedTime('vừa xong');
-    }, 10000);
+    const timer = setInterval(() => setLastUpdatedLabel('vừa xong'), 10000);
     return () => clearInterval(timer);
   }, []);
 
+  // Realtime push is the primary update path — the 30s refetchInterval above is just a
+  // safety net if the socket connection drops.
+  useRealtimeInvalidate('dashboard:refresh', [['manager-dashboard-overview']]);
+  useRealtimeInvalidate('attendance:updated', [['manager-dashboard-overview']]);
+  useRealtimeInvalidate('guestvisit:updated', [['manager-dashboard-overview']]);
+  useRealtimeInvalidate('payment:confirmed', [['manager-dashboard-overview'], ['manager-dashboard-performance']]);
+
   const kpis = overview?.kpis;
-  const actionCenter = overview?.actionCenter || [];
-  
-  // Tối ưu chuẩn 8 mốc giờ chính để KHÔNG BAO GIỜ BỊ TRÀN NGANG (Fix Spec 1.1)
-  const mainHourlyCheckins = (overview?.hourlyCheckins || [
-    { hour: '06', count: 12 },
-    { hour: '08', count: 24 },
-    { hour: '10', count: 18 },
-    { hour: '12', count: 14 },
-    { hour: '14', count: 20 },
-    { hour: '16', count: 32 },
-    { hour: '18', count: 48 },
-    { hour: '20', count: 28 },
-  ]).slice(0, 8);
-
-  const maxHourlyCount = Math.max(...mainHourlyCheckins.map((h) => h.count), 5);
-
-  // Lọc chỉ render các action item có count > 0 (Spec BR-DASH-13)
+  const actionCenter = overview?.actionCenter ?? [];
   const activeQueueItems = actionCenter.filter((item) => item.count > 0);
-  const criticalOrWarningCount = activeQueueItems.reduce(
-    (acc, curr) => (curr.priority === 'CRITICAL' || curr.priority === 'WARNING' ? acc + curr.count : acc),
-    0
-  );
+  const criticalCount = activeQueueItems
+    .filter((item) => item.priority === 'CRITICAL' || item.priority === 'WARNING')
+    .reduce((acc, item) => acc + item.count, 0);
+
+  const hourlyCheckins = overview?.hourlyCheckins ?? [];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="flex flex-col gap-6 w-full max-w-full overflow-x-hidden"
-    >
-      {/* ========================================================================= */}
-      {/* TẦNG 1 — VẬN HÀNH (REAL-TIME OPERATIONS)                                    */}
-      {/* ========================================================================= */}
-
-      <div>
-        {/* Dải nhãn Tầng 1 (Height 28px) */}
-        <div className="h-7 rounded-t-lg bg-[#E3F2EC] px-3.5 dark:bg-emerald-950/80 flex items-center justify-between text-xs border border-[#CBD1CC]/40 dark:border-emerald-800/40">
-          <div className="flex items-center gap-2 text-[#0E7C5A] dark:text-emerald-300 font-bold">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#0E7C5A] opacity-75 dark:bg-emerald-400" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-[#0E7C5A] dark:bg-emerald-400" />
-            </span>
-            <span>Thời gian thực · không chịu bộ lọc ngày</span>
-          </div>
-
-          <div className="flex items-center gap-2 text-[#5A6360] dark:text-zinc-400 text-[11px]">
-            <span>Cập nhật {lastUpdatedTime}</span>
-            <button
-              type="button"
-              onClick={() => {
-                refetch();
-                refetchCurrentlyInGym();
-              }}
-              disabled={isLoading}
-              className="hover:text-slate-900 dark:hover:text-zinc-200 transition-colors p-0.5"
-              title="Làm mới dữ liệu"
-            >
-              <ArrowClockwise size={13} className={isLoading ? 'animate-spin' : ''} />
-            </button>
-          </div>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="flex flex-col gap-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold leading-tight text-zinc-900 dark:text-zinc-50">Tổng quan chi nhánh</h1>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Vận hành thời gian thực & hiệu suất kinh doanh của chi nhánh bạn phụ trách</p>
         </div>
-
-        {/* Dải 4 KPI Cố Định + Sparkline Giờ Cao Điểm (Chia bằng đường kẻ, Xử lý 100% Tràn Ngang) */}
-        <div className="rounded-b-lg border border-t-0 border-[#E4E7E3] bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-12 divide-y sm:divide-y-0 sm:divide-x divide-[#E4E7E3] dark:divide-zinc-800 overflow-hidden">
-          {/* KPI 1: Đang trong phòng tập */}
-          <div className="xl:col-span-2 p-4 flex flex-col justify-between">
-            <span className="text-[13px] font-semibold text-[#5A6360] dark:text-zinc-400">
-              Đang trong phòng tập
-            </span>
-            <div className="mt-2 font-mono text-[30px] font-bold text-[#131A18] dark:text-zinc-50 leading-none">
-              {kpis?.currentlyInGym ?? 42}
-            </div>
-            <span className="mt-2 text-xs font-medium text-[#8A928F] dark:text-zinc-500">
-              Member {kpis?.currentlyInGymMembers ?? 35} · Guest {kpis?.currentlyInGymGuests ?? 7}
-            </span>
-          </div>
-
-          {/* KPI 2: Check-in hôm nay */}
-          <div className="xl:col-span-2 p-4 flex flex-col justify-between">
-            <span className="text-[13px] font-semibold text-[#5A6360] dark:text-zinc-400">
-              Check-in hôm nay
-            </span>
-            <div className="mt-2 font-mono text-[30px] font-bold text-[#131A18] dark:text-zinc-50 leading-none">
-              {kpis?.todayCheckins ?? 127}
-            </div>
-            <span className="mt-2 text-xs font-medium text-[#8A928F] dark:text-zinc-500">
-              Undo {kpis?.undoCheckins ?? 2}
-            </span>
-          </div>
-
-          {/* KPI 3: Chờ thanh toán */}
-          <div className="xl:col-span-2 p-4 flex flex-col justify-between">
-            <span className="text-[13px] font-semibold text-[#5A6360] dark:text-zinc-400">
-              Chờ thanh toán
-            </span>
-            <div
-              className={`mt-2 font-mono text-[30px] font-bold leading-none ${
-                (actionCenter[0]?.count ?? 3) > 0 ? 'text-[#C2413A]' : 'text-[#8A928F]'
-              }`}
-            >
-              {actionCenter[0]?.count ?? 3}
-            </div>
-            <span className="mt-2 text-xs font-medium text-[#8A928F] dark:text-zinc-500">
-              {(actionCenter[0]?.count ?? 3) > 0 ? 'Quá 30 phút' : 'Không có giao dịch chờ'}
-            </span>
-          </div>
-
-          {/* KPI 4: PT hôm nay */}
-          <div className="xl:col-span-2 p-4 flex flex-col justify-between">
-            <span className="text-[13px] font-semibold text-[#5A6360] dark:text-zinc-400">
-              PT hôm nay
-            </span>
-            <div className="mt-2 font-mono text-[30px] font-bold text-[#131A18] dark:text-zinc-50 leading-none">
-              {kpis?.todayPtSessions.total ?? 18}
-            </div>
-            <span className="mt-2 text-xs font-medium text-[#8A928F] dark:text-zinc-500">
-              Xong {kpis?.todayPtSessions.completed ?? 10} · Sắp tới {kpis?.todayPtSessions.upcoming ?? 6} · Huỷ {kpis?.todayPtSessions.cancelled ?? 2}
-            </span>
-          </div>
-
-          {/* Ô 5: Sparkline lưu lượng theo giờ (Cố định 8 cột chuẩn, KHÔNG TRÀN KHUNG) */}
-          <div className="xl:col-span-4 p-4 flex flex-col justify-between min-w-0 overflow-hidden">
-            <span className="text-[13px] font-semibold text-[#5A6360] dark:text-zinc-400">
-              Lưu lượng theo giờ
-            </span>
-
-            <div className="mt-3 flex h-12 items-end justify-between gap-1.5 w-full min-w-0">
-              {mainHourlyCheckins.map((item) => {
-                const heightPercent = Math.round((item.count / maxHourlyCount) * 100);
-                const isPeak = item.count >= maxHourlyCount * 0.8;
-                return (
-                  <div
-                    key={item.hour}
-                    className="group relative flex flex-1 flex-col items-center gap-1 h-full justify-end min-w-0"
-                  >
-                    {/* Tooltip on hover */}
-                    <div className="absolute -top-7 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-slate-900 text-white text-[10px] font-mono py-0.5 px-1.5 rounded shadow-md pointer-events-none whitespace-nowrap z-20">
-                      {item.hour}:00 · {item.count} lượt
-                    </div>
-
-                    <div
-                      style={{ height: `${Math.max(heightPercent, 12)}%` }}
-                      className={`w-full rounded-t-xs transition-all ${
-                        isPeak ? 'bg-[#0E7C5A]' : 'bg-[#CBD1CC] dark:bg-zinc-700'
-                      }`}
-                    />
-                    <span className="text-[10px] font-mono text-[#8A928F] truncate w-full text-center">
-                      {item.hour}h
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-400">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          <span>Cập nhật {lastUpdatedLabel}</span>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-stone-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            title="Làm mới dữ liệu"
+          >
+            <ArrowClockwise size={14} className={isLoading ? 'animate-spin' : ''} />
+          </button>
         </div>
       </div>
 
-      {/* Hàng Đợi Xử Lý (Single List sắp giảm dần theo Severity, KHÔNG DÙNG 3 CỘT) */}
-      <div className="rounded-xl border border-[#E4E7E3] bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-xs overflow-hidden">
-        {/* Header hàng đợi */}
-        <div className="px-4 py-3.5 border-b border-[#E4E7E3] dark:border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-base font-bold text-[#131A18] dark:text-zinc-50">
-              Hàng đợi xử lý
-            </h2>
-            {criticalOrWarningCount > 0 && (
-              <span className="rounded-full bg-[#FBEDEC] px-2.5 py-0.5 text-xs font-bold text-[#C2413A]">
-                {criticalOrWarningCount} việc cần gấp
-              </span>
+      {/* TẦNG 1 — VẬN HÀNH THỜI GIAN THỰC */}
+      <motion.div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" initial="hidden" animate="show">
+        <motion.div custom={0} variants={fadeUp}>
+          <KpiCard
+            icon={PersonSimpleRun}
+            tone="violet"
+            label="Đang trong phòng tập"
+            value={`${kpis?.currentlyInGym ?? 0}`}
+            hint={`Member ${kpis?.currentlyInGymMembers ?? 0} · Guest ${kpis?.currentlyInGymGuests ?? 0}`}
+          />
+        </motion.div>
+        <motion.div custom={1} variants={fadeUp}>
+          {/* BR-STAT-001: "Khách đã đến" (Daily Unique Visitors) — một khách chỉ tính một lần
+              dù check-in nhiều lượt trong ngày. Số LƯỢT check-in (todayCheckins) hiển thị ở
+              hint, không được gộp chung làm một chỉ số. */}
+          <KpiCard
+            icon={CheckCircle}
+            tone="blue"
+            label="Khách đã đến hôm nay"
+            value={`${kpis?.dailyUniqueVisitors ?? 0}`}
+            hint={`${kpis?.todayCheckins ?? 0} lượt Check-in · Undo ${kpis?.undoCheckins ?? 0}`}
+          />
+        </motion.div>
+        <motion.div custom={2} variants={fadeUp}>
+          <KpiCard
+            icon={Hourglass}
+            tone="amber"
+            label="Chờ thanh toán"
+            value={`${actionCenter.find((a) => a.id === 'pending-payments')?.count ?? 0}`}
+            hint={(actionCenter.find((a) => a.id === 'pending-payments')?.count ?? 0) > 0 ? 'Cần xác nhận thủ công' : 'Không có giao dịch chờ'}
+          />
+        </motion.div>
+        <motion.div custom={3} variants={fadeUp}>
+          <KpiCard
+            icon={Barbell}
+            tone="emerald"
+            label="PT hôm nay"
+            value={`${kpis?.todayPtSessions.total ?? 0}`}
+            hint={`Xong ${kpis?.todayPtSessions.completed ?? 0} · Sắp tới ${kpis?.todayPtSessions.upcoming ?? 0} · Huỷ ${kpis?.todayPtSessions.cancelled ?? 0}`}
+          />
+        </motion.div>
+      </motion.div>
+
+      {/* Lưu lượng theo giờ */}
+      <motion.div initial="hidden" animate="show" custom={4} variants={fadeUp}>
+        <Card>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-stone-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              <ChartBar size={16} />
+            </div>
+            <div>
+              <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-50">Lưu lượng theo giờ</h2>
+              <p className="text-xs text-zinc-400">Số lượt check-in trong ngày, theo từng khung giờ mở cửa</p>
+            </div>
+          </div>
+          <div className="mt-4 h-48">
+            {isLoading ? (
+              <Skeleton className="h-full w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={hourlyCheckins} margin={{ top: 4, right: 4, bottom: 0, left: -24 }}>
+                  <CartesianGrid vertical={false} stroke="#e1e0d9" className="dark:stroke-zinc-800" />
+                  <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fill: '#898781', fontSize: 11 }} dy={6} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#898781', fontSize: 11 }} width={32} allowDecimals={false} />
+                  <RechartsTooltip
+                    cursor={{ fill: '#05966912' }}
+                    content={({ active, payload, label }) =>
+                      active && payload?.length ? (
+                        <div className="rounded-xl border border-stone-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
+                          <p className="text-[11px] font-medium text-zinc-400">{label}</p>
+                          <p className="font-display text-sm font-bold text-zinc-900 dark:text-zinc-50">{payload[0].value} lượt</p>
+                        </div>
+                      ) : null
+                    }
+                  />
+                  <Bar dataKey="count" fill="#059669" radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </div>
+        </Card>
+      </motion.div>
 
-          <span className="text-xs text-[#8A928F] dark:text-zinc-500 font-medium">
-            Sắp giảm dần theo mức độ
-          </span>
-        </div>
-
-        {/* Danh sách hàng đợi */}
-        {activeQueueItems.length === 0 ? (
-          /* State 7.3: Hàng đợi rỗng */
-          <div className="h-[140px] flex flex-col items-center justify-center text-center p-4">
-            <CheckCircle size={32} className="text-[#0E7C5A] mb-2" weight="bold" />
-            <p className="text-sm font-bold text-[#5A6360] dark:text-zinc-300">
-              Không có việc cần xử lý
-            </p>
-            <p className="text-xs text-[#8A928F] dark:text-zinc-500 mt-1">
-              Mọi cảnh báo trong chi nhánh đã được giải quyết.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-[#E4E7E3] dark:divide-zinc-800">
-            {activeQueueItems.map((item) => {
-              const isCritical = item.priority === 'CRITICAL';
-              const isWarning = item.priority === 'WARNING';
-
-              const dotColor = isCritical
-                ? 'bg-[#C2413A]'
-                : isWarning
-                ? 'bg-[#B0741A]'
-                : 'bg-[#2C6CA8]';
-
-              return (
-                <div
-                  key={item.id}
-                  className="min-h-[56px] px-4 py-2.5 flex items-center justify-between gap-4 hover:bg-[#F1F2EF] dark:hover:bg-zinc-800/60 transition-colors"
-                >
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    {/* Chấm 6px tín hiệu Severity duy nhất (Spec 5.4) */}
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor}`} />
-
-                    <div className="truncate">
-                      <p className="text-xs sm:text-sm font-bold text-[#131A18] dark:text-zinc-100 truncate">
-                        {item.count} {item.title}
-                      </p>
-                      <p className="text-xs text-[#8A928F] dark:text-zinc-400 truncate">
-                        {item.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Nhãn nút phân biệt loại hành động */}
-                  <div className="shrink-0">
-                    {isCritical ? (
-                      <button
-                        type="button"
-                        onClick={() => navigate('/manager/memberships')}
-                        className="h-8 px-3.5 rounded-lg border border-[#C2413A] bg-white text-xs font-bold text-[#C2413A] hover:bg-[#FBEDEC] transition-colors shadow-xs"
-                      >
-                        Xác nhận
-                      </button>
-                    ) : isWarning ? (
-                      <button
-                        type="button"
-                        onClick={() => navigate('/manager/customers')}
-                        className="h-8 px-3.5 rounded-lg border border-[#E4E7E3] bg-[#F6F7F5] text-xs font-bold text-[#131A18] hover:bg-[#E4E7E3] dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 transition-colors shadow-xs"
-                      >
-                        Xem {item.count}
-                      </button>
-                    ) : (
-                      <span className="text-xs font-medium text-[#8A928F] dark:text-zinc-500">
-                        Đang theo dõi
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* TẦNG 2 — HIỆU SUẤT THEO KỲ (PERFORMANCE BY PERIOD)                          */}
-      {/* ========================================================================= */}
-
-      <div className="mt-2 rounded-xl border border-[#E4E7E3] bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-xs overflow-hidden">
-        {/* Dải nhãn Tầng 2 (Height 44px, Tích hợp Bộ lọc ngày ở bên phải) */}
-        <div className="min-h-[44px] px-4 py-2 bg-[#F1F2EF] dark:bg-zinc-800/80 border-b border-[#CBD1CC] dark:border-zinc-700 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span className="font-bold text-[#5A6360] dark:text-zinc-300 uppercase tracking-wider text-[11px]">
-            TẦNG 2 · HIỆU SUẤT THEO KỲ
-          </span>
-
-          {/* BỘ LỌC NGÀY ĐẶT TẠI ĐÂY THEO SPEC 5.2 */}
-          <div className="flex items-center gap-2">
-            <span className="text-[#8A928F] dark:text-zinc-400 font-medium">Xem theo:</span>
-            <select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              className="h-7 rounded-lg border border-[#CBD1CC] bg-white px-2.5 text-xs font-bold text-[#131A18] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-[#0E7C5A] shadow-xs"
-            >
-              <option value="today">Hôm nay</option>
-              <option value="yesterday">Hôm qua</option>
-              <option value="week">Tuần này</option>
-              <option value="month">Tháng này</option>
-              <option value="last_month">Tháng trước</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Header Tabs: Doanh thu | Hội viên | PT */}
-        <div className="px-4 border-b border-[#E4E7E3] dark:border-zinc-800 flex items-center gap-6 overflow-x-auto">
-          {[
-            { id: 'revenue', label: 'Doanh thu' },
-            { id: 'members', label: 'Hội viên' },
-            { id: 'pt', label: 'Huấn luyện viên (PT)' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-[#0E7C5A] text-[#0E7C5A] dark:border-emerald-400 dark:text-emerald-400'
-                  : 'border-transparent text-[#5A6360] hover:text-[#131A18] dark:text-zinc-400 dark:hover:text-zinc-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Nội dung Tab: Biểu đồ (1.5fr) | Breakdown (1fr) */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.2 }}
-            className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-6"
-          >
-            {/* Cột trái 1.5fr: Biểu đồ chính + Trend con số */}
-            <div className="lg:col-span-7 flex flex-col justify-between">
-              <div>
-                {/* Value lớn & Nhãn so sánh đầy đủ chữ theo Spec 5.5 */}
-                <div className="flex flex-wrap items-baseline gap-3">
-                  <span className="font-mono text-2xl lg:text-3xl font-bold text-[#131A18] dark:text-zinc-50">
-                    {activeTab === 'revenue'
-                      ? '142.800.000 ₫'
-                      : activeTab === 'members'
-                      ? '342 hội viên active'
-                      : '186 buổi tập'}
-                  </span>
-                  <span className="text-xs font-bold text-[#0E7C5A] dark:text-emerald-400">
-                    ▲ 8% so với tháng trước
-                  </span>
-                </div>
-                <p className="mt-1 text-xs font-medium text-[#8A928F] dark:text-zinc-500">
-                  Tổng hợp kinh doanh tính đến hôm nay
-                </p>
-              </div>
-
-              {/* Simulated Chart Bars */}
-              <div className="mt-6 flex h-40 items-end justify-between gap-3 border-b border-[#E4E7E3] pb-2 dark:border-zinc-800">
-                {['Tuần 1', 'Tuần 2', 'Tuần 3', 'Tuần 4'].map((w, idx) => (
-                  <div key={w} className="flex flex-1 flex-col items-center gap-1.5 h-full justify-end">
-                    <div
-                      style={{ height: `${[45, 68, 88, 60][idx]}%` }}
-                      className="w-full bg-[#0E7C5A] rounded-t-xs hover:bg-[#0B6549] transition-colors"
-                    />
-                    <span className="text-xs font-medium text-[#5A6360] dark:text-zinc-400">{w}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Cột phải 1fr: Breakdown chi tiết nguồn (Tối ưu không bao giờ cắt chữ) */}
-            <div className="lg:col-span-5 border-t lg:border-t-0 lg:border-l border-[#E4E7E3] pt-4 lg:pt-0 lg:pl-6 dark:border-zinc-800 flex flex-col justify-between h-auto">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#8A928F] dark:text-zinc-400 block mb-3">
-                Phân tích cấu trúc nguồn
-              </span>
-
-              {activeTab === 'revenue' ? (
-                <div className="flex flex-col gap-3 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#E4E7E3] dark:border-zinc-800">
-                    <span className="text-[#5A6360] dark:text-zinc-400 font-semibold">Gói tập (Membership)</span>
-                    <span className="font-mono font-bold text-[#131A18] dark:text-zinc-100">98.200.000 ₫</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#E4E7E3] dark:border-zinc-800">
-                    <span className="text-[#5A6360] dark:text-zinc-400 font-semibold">Gói PT (PT Package)</span>
-                    <span className="font-mono font-bold text-[#131A18] dark:text-zinc-100">36.400.000 ₫</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#E4E7E3] dark:border-zinc-800">
-                    <span className="text-[#5A6360] dark:text-zinc-400 font-semibold">Khách lẻ (Guest)</span>
-                    <span className="font-mono font-bold text-[#131A18] dark:text-zinc-100">12.600.000 ₫</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 text-[#C2413A]">
-                    <span className="font-semibold">Hoàn tiền (Refund)</span>
-                    <span className="font-mono font-bold">−4.400.000 ₫</span>
-                  </div>
-                  <div className="flex items-center justify-between pt-3 border-t border-[#CBD1CC] font-bold text-[#131A18] dark:border-zinc-700 dark:text-zinc-50">
-                    <span>Doanh thu thuần (Net)</span>
-                    <span className="font-mono text-sm">142.800.000 ₫</span>
-                  </div>
-                </div>
-              ) : activeTab === 'members' ? (
-                <div className="flex flex-col gap-3 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#E4E7E3] dark:border-zinc-800">
-                    <span className="text-[#5A6360] dark:text-zinc-400 font-semibold">Hội viên mới trong kỳ</span>
-                    <span className="font-mono font-bold text-[#131A18] dark:text-zinc-100">24 người</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#E4E7E3] dark:border-zinc-800">
-                    <span className="text-[#5A6360] dark:text-zinc-400 font-semibold">Gia hạn gói tập</span>
-                    <span className="font-mono font-bold text-[#131A18] dark:text-zinc-100">18 gói</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 text-[#C2413A]">
-                    <span className="font-semibold">Gói đã hết hạn</span>
-                    <span className="font-mono font-bold">12 gói</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 text-[#B0741A]">
-                    <span className="font-semibold">Nguy cơ rời bỏ (At risk)</span>
-                    <span className="font-mono font-bold">42 người</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#E4E7E3] dark:border-zinc-800">
-                    <span className="text-[#5A6360] dark:text-zinc-400 font-semibold">PT đang hoạt động</span>
-                    <span className="font-mono font-bold text-[#131A18] dark:text-zinc-100">8 HLV</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#E4E7E3] dark:border-zinc-800">
-                    <span className="text-[#5A6360] dark:text-zinc-400 font-semibold">Tổng số buổi hoàn thành</span>
-                    <span className="font-mono font-bold text-[#131A18] dark:text-zinc-100">186 buổi</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 text-[#C2413A]">
-                    <span className="font-semibold">Tỷ lệ huỷ lịch</span>
-                    <span className="font-mono font-bold">4.2%</span>
-                  </div>
-                </div>
+      {/* Hàng đợi xử lý */}
+      <motion.div initial="hidden" animate="show" custom={5} variants={fadeUp}>
+        <Card padded={false}>
+          <div className="flex items-center justify-between border-b border-stone-200/80 px-6 py-4 dark:border-zinc-800">
+            <div className="flex items-center gap-2.5">
+              <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-50">Hàng đợi xử lý</h2>
+              {criticalCount > 0 && (
+                <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-400">
+                  {criticalCount} việc cần gấp
+                </span>
               )}
             </div>
-          </motion.div>
-        </AnimatePresence>
-      </div>
+            <span className="text-xs font-medium text-zinc-400">Sắp giảm dần theo mức độ</span>
+          </div>
+
+          {activeQueueItems.length === 0 ? (
+            <div className="flex h-36 flex-col items-center justify-center gap-1.5 text-center">
+              <CheckCircle size={28} weight="bold" className="text-emerald-500" />
+              <p className="text-sm font-bold text-zinc-600 dark:text-zinc-300">Không có việc cần xử lý</p>
+              <p className="text-xs text-zinc-400">Mọi cảnh báo trong chi nhánh đã được giải quyết.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-stone-100 dark:divide-zinc-800">
+              {activeQueueItems.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => setSelectedQueueItem(item)}
+                  className="flex w-full items-center justify-between gap-4 px-6 py-3 text-left transition-colors hover:bg-stone-50 dark:hover:bg-zinc-800/50"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[item.priority] ?? 'bg-blue-500'}`} />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-100">{item.title}</p>
+                      <p className="truncate text-xs text-zinc-400">{item.description}</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-zinc-500 dark:text-zinc-400">
+                    Xem chi tiết
+                    <ArrowRight size={12} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+      </motion.div>
+
+      {/* TẦNG 2 — HIỆU SUẤT THEO KỲ */}
+      <motion.div initial="hidden" animate="show" custom={6} variants={fadeUp}>
+        <Card padded={false}>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200/80 bg-stone-50/60 px-6 py-3 dark:border-zinc-800 dark:bg-zinc-800/40">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Tầng 2 · Hiệu suất theo kỳ</span>
+            <select
+              value={range.key}
+              onChange={(e) => {
+                const opt = RANGE_OPTIONS.find((r) => r.key === e.target.value);
+                if (opt) setRange(opt);
+              }}
+              className="rounded-lg border border-stone-200 bg-white px-2.5 py-1 text-xs font-bold text-zinc-700 shadow-xs outline-none transition-colors hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            >
+              {RANGE_OPTIONS.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-6 overflow-x-auto border-b border-stone-200/80 px-6 dark:border-zinc-800">
+            {[
+              { id: 'revenue', label: 'Doanh thu' },
+              { id: 'members', label: 'Hội viên' },
+              { id: 'pt', label: 'Huấn luyện viên (PT)' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                className={`whitespace-nowrap border-b-2 py-3 text-sm font-bold transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-emerald-600 text-emerald-700 dark:border-emerald-400 dark:text-emerald-400'
+                    : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {isPerformanceLoading || !performance ? (
+            <div className="p-6">
+              <Skeleton className="h-64 w-full" />
+            </div>
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.2 }}
+                className="grid grid-cols-1 gap-6 p-6 lg:grid-cols-12"
+              >
+                {activeTab === 'revenue' && (
+                  <>
+                    <div className="flex flex-col justify-between lg:col-span-7">
+                      <div>
+                        <div className="flex flex-wrap items-baseline gap-3">
+                          <span className="font-display text-2xl font-bold text-zinc-900 lg:text-3xl dark:text-zinc-50">
+                            {formatMoney(performance.revenue.total)}
+                          </span>
+                          {performance.revenue.growthPct !== null && (
+                            <span className={`text-xs font-bold ${performance.revenue.growthPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {performance.revenue.growthPct >= 0 ? '▲' : '▼'} {Math.abs(performance.revenue.growthPct)}% so với kỳ trước
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-400">Tổng doanh thu đã thu — {RANGE_OPTIONS.find((r) => r.key === range.key)?.label}</p>
+                      </div>
+                      <div className="mt-4 flex justify-end">
+                        <div className="flex rounded-lg bg-stone-100 p-0.5 dark:bg-zinc-800">
+                          {(['day', 'week', 'month'] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              onClick={() => setGroupBy(mode)}
+                              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                                groupBy === mode
+                                  ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-50'
+                                  : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50'
+                              }`}
+                            >
+                              {mode === 'day' ? 'Ngày' : mode === 'week' ? 'Tuần' : 'Tháng'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <RevenueChart data={performance.revenue.trend.map((d) => ({ date: formatGroupLabel(d.date, groupBy), revenue: d.revenue }))} />
+                      </div>
+                    </div>
+                    <div className="flex flex-col border-t border-stone-200/80 pt-4 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0 dark:border-zinc-800">
+                      <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-zinc-400">Phân tích cấu trúc nguồn</span>
+                      <div className="flex flex-col gap-3 text-xs">
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 dark:border-zinc-800">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400">Gói tập (Membership)</span>
+                          <span className="font-display font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(performance.revenue.bySource.membership)}</span>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 dark:border-zinc-800">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400">Gói PT (PT Package)</span>
+                          <span className="font-display font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(performance.revenue.bySource.pt)}</span>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 dark:border-zinc-800">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400">Khách lẻ (Guest)</span>
+                          <span className="font-display font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(performance.revenue.bySource.guest)}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-2 font-bold text-zinc-900 dark:text-zinc-50">
+                          <span>Tổng doanh thu</span>
+                          <span className="font-display text-sm">{formatMoney(performance.revenue.total)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeTab === 'members' && (
+                  <>
+                    <div className="flex flex-col justify-between lg:col-span-7">
+                      <div>
+                        <div className="flex flex-wrap items-baseline gap-3">
+                          <span className="font-display text-2xl font-bold text-zinc-900 lg:text-3xl dark:text-zinc-50">
+                            {performance.members.newCount} hội viên mới
+                          </span>
+                          {performance.members.growthPct !== null && (
+                            <span className={`text-xs font-bold ${performance.members.growthPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {performance.members.growthPct >= 0 ? '▲' : '▼'} {Math.abs(performance.members.growthPct)}% so với kỳ trước
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-400">Đăng ký mới trong kỳ — {RANGE_OPTIONS.find((r) => r.key === range.key)?.label}</p>
+                      </div>
+                      <div className="mt-6 h-52">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={[
+                              { label: 'Mới', value: performance.members.newCount },
+                              { label: 'Gia hạn', value: performance.members.renewedCount },
+                              { label: 'Hết hạn', value: performance.members.expiredCount },
+                            ]}
+                            margin={{ top: 4, right: 4, bottom: 0, left: -24 }}
+                          >
+                            <CartesianGrid vertical={false} stroke="#e1e0d9" className="dark:stroke-zinc-800" />
+                            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#898781', fontSize: 12 }} dy={6} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#898781', fontSize: 11 }} width={32} allowDecimals={false} />
+                            <RechartsTooltip
+                              cursor={{ fill: '#2a78d612' }}
+                              content={({ active, payload, label }) =>
+                                active && payload?.length ? (
+                                  <div className="rounded-xl border border-stone-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
+                                    <p className="text-[11px] font-medium text-zinc-400">{label}</p>
+                                    <p className="font-display text-sm font-bold text-zinc-900 dark:text-zinc-50">{payload[0].value} hội viên</p>
+                                  </div>
+                                ) : null
+                              }
+                            />
+                            <Bar dataKey="value" fill="#2a78d6" radius={[4, 4, 0, 0]} maxBarSize={56} isAnimationActive={false} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    <div className="flex flex-col border-t border-stone-200/80 pt-4 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0 dark:border-zinc-800">
+                      <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-zinc-400">Chi tiết hội viên</span>
+                      <div className="flex flex-col gap-3 text-xs">
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 dark:border-zinc-800">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400">Hội viên mới trong kỳ</span>
+                          <span className="font-display font-bold text-zinc-900 dark:text-zinc-100">{performance.members.newCount} người</span>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 dark:border-zinc-800">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400">Gia hạn gói tập</span>
+                          <span className="font-display font-bold text-zinc-900 dark:text-zinc-100">{performance.members.renewedCount} gói</span>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 text-red-600 dark:border-zinc-800 dark:text-red-400">
+                          <span className="font-semibold">Gói đã hết hạn trong kỳ</span>
+                          <span className="font-display font-bold">{performance.members.expiredCount} gói</span>
+                        </div>
+                        <div className="flex items-center justify-between py-1.5 text-amber-600 dark:text-amber-400">
+                          <span className="font-semibold">Nguy cơ rời bỏ (hiện tại, &gt;14 ngày chưa tập)</span>
+                          <span className="font-display font-bold">{performance.members.atRiskCount} người</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeTab === 'pt' && (
+                  <>
+                    <div className="flex flex-col justify-between lg:col-span-7">
+                      <div>
+                        <div className="flex flex-wrap items-baseline gap-3">
+                          <span className="font-display text-2xl font-bold text-zinc-900 lg:text-3xl dark:text-zinc-50">
+                            {performance.pt.totalSessions} buổi tập
+                          </span>
+                          {performance.pt.growthPct !== null && (
+                            <span className={`text-xs font-bold ${performance.pt.growthPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {performance.pt.growthPct >= 0 ? '▲' : '▼'} {Math.abs(performance.pt.growthPct)}% so với kỳ trước
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-400">Lịch tập PT trong kỳ — {RANGE_OPTIONS.find((r) => r.key === range.key)?.label}</p>
+                      </div>
+                      <div className="mt-6 h-52">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={[
+                              { label: 'Hoàn thành', value: performance.pt.completedSessions },
+                              { label: 'Đã huỷ', value: performance.pt.cancelledSessions },
+                            ]}
+                            margin={{ top: 4, right: 4, bottom: 0, left: -24 }}
+                          >
+                            <CartesianGrid vertical={false} stroke="#e1e0d9" className="dark:stroke-zinc-800" />
+                            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#898781', fontSize: 12 }} dy={6} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#898781', fontSize: 11 }} width={32} allowDecimals={false} />
+                            <RechartsTooltip
+                              cursor={{ fill: '#7c6ce812' }}
+                              content={({ active, payload, label }) =>
+                                active && payload?.length ? (
+                                  <div className="rounded-xl border border-stone-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
+                                    <p className="text-[11px] font-medium text-zinc-400">{label}</p>
+                                    <p className="font-display text-sm font-bold text-zinc-900 dark:text-zinc-50">{payload[0].value} buổi</p>
+                                  </div>
+                                ) : null
+                              }
+                            />
+                            <Bar dataKey="value" fill="#7c6ce8" radius={[4, 4, 0, 0]} maxBarSize={56} isAnimationActive={false} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    <div className="flex flex-col border-t border-stone-200/80 pt-4 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0 dark:border-zinc-800">
+                      <span className="mb-3 block text-xs font-bold uppercase tracking-wider text-zinc-400">Chi tiết huấn luyện viên</span>
+                      <div className="flex flex-col gap-3 text-xs">
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 dark:border-zinc-800">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400">PT có lịch trong kỳ</span>
+                          <span className="font-display font-bold text-zinc-900 dark:text-zinc-100">{performance.pt.activeTrainersCount} HLV</span>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-stone-100 py-1.5 dark:border-zinc-800">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400">Tổng số buổi hoàn thành</span>
+                          <span className="font-display font-bold text-zinc-900 dark:text-zinc-100">{performance.pt.completedSessions} buổi</span>
+                        </div>
+                        <div className="flex items-center justify-between py-1.5 text-red-600 dark:text-red-400">
+                          <span className="font-semibold">Tỷ lệ huỷ lịch</span>
+                          <span className="font-display font-bold">{performance.pt.cancelRate}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          )}
+        </Card>
+      </motion.div>
+
+      {/* QUEUE ITEM DETAIL MODAL — SaaS Rich Modal Design */}
+      {selectedQueueItem && (
+        <Modal open={!!selectedQueueItem} size="lg" title="Chi tiết danh sách cần xử lý" onClose={() => setSelectedQueueItem(null)}>
+          <div className="flex flex-col gap-4">
+            {/* Header Banner */}
+            <div
+              className={`rounded-2xl border p-4 shadow-sm ${
+                selectedQueueItem.priority === 'CRITICAL'
+                  ? 'border-rose-200 bg-rose-50/80 dark:border-rose-900/60 dark:bg-rose-950/40'
+                  : selectedQueueItem.priority === 'WARNING'
+                  ? 'border-amber-200 bg-amber-50/80 dark:border-amber-900/60 dark:bg-amber-950/40'
+                  : 'border-blue-200 bg-blue-50/80 dark:border-blue-900/60 dark:bg-blue-950/40'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+                    selectedQueueItem.priority === 'CRITICAL'
+                      ? 'bg-rose-600 text-white'
+                      : selectedQueueItem.priority === 'WARNING'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-blue-600 text-white'
+                  }`}
+                >
+                  {selectedQueueItem.priority === 'CRITICAL'
+                    ? 'Cần xử lý ngay'
+                    : selectedQueueItem.priority === 'WARNING'
+                    ? 'Cảnh báo'
+                    : 'Thông báo'}
+                </span>
+                <span className="font-mono text-xs font-bold text-zinc-600 dark:text-zinc-300">
+                  {selectedQueueItem.items.length} hội viên
+                </span>
+              </div>
+              <h3 className="mt-2 font-display text-base font-bold text-zinc-900 dark:text-zinc-50">
+                {selectedQueueItem.title}
+              </h3>
+              <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{selectedQueueItem.description}</p>
+            </div>
+
+            {/* Rich Data Table */}
+            {selectedQueueItem.items.length > 0 && (
+              <div className="max-h-88 overflow-y-auto rounded-2xl border border-stone-200 shadow-sm dark:border-zinc-800">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-stone-200 bg-stone-50/90 font-semibold text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/80 dark:text-zinc-400">
+                      <th className="px-4 py-3">Hội viên</th>
+                      <th className="px-4 py-3">Số điện thoại</th>
+                      {selectedQueueItem.id === 'pending-payments' && (
+                        <>
+                          <th className="px-4 py-3">Phương thức</th>
+                          <th className="px-4 py-3 text-right">Số tiền</th>
+                        </>
+                      )}
+                      {selectedQueueItem.id === 'expiring-memberships' && (
+                        <>
+                          <th className="px-4 py-3">Gói tập</th>
+                          <th className="px-4 py-3 text-right">Ngày hết hạn</th>
+                        </>
+                      )}
+                      {selectedQueueItem.id === 'at-risk-members' && (
+                        <>
+                          <th className="px-4 py-3 text-right">Ngày đăng ký</th>
+                          <th className="px-4 py-3 text-right">Lần tập gần nhất</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-zinc-800/60">
+                    {selectedQueueItem.items.map((item) => {
+                      const avatarGradient = getAvatarGradient(item.customerName);
+                      return (
+                        <tr key={item.id} className="group hover:bg-stone-50/80 dark:hover:bg-zinc-900/60 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div
+                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br font-display text-xs font-bold shadow-xs ${avatarGradient}`}
+                              >
+                                {getInitials(item.customerName)}
+                              </div>
+                              <span className="font-bold text-zinc-900 dark:text-zinc-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+                                {item.customerName}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                              {item.customerPhone || '—'}
+                            </span>
+                          </td>
+                          {selectedQueueItem.id === 'pending-payments' && (
+                            <>
+                              <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                                <span className="rounded-md bg-stone-100 px-2 py-0.5 text-[11px] font-medium dark:bg-zinc-800">
+                                  {PAYMENT_METHOD_LABELS[item.method ?? ''] ?? item.method ?? '—'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
+                                {item.amount != null ? formatMoney(item.amount) : '—'}
+                              </td>
+                            </>
+                          )}
+                          {selectedQueueItem.id === 'expiring-memberships' && (
+                            <>
+                              <td className="px-4 py-3 font-medium text-emerald-700 dark:text-emerald-400">
+                                {item.packageName || 'Gói tập'}
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">
+                                {item.endDate ? new Date(item.endDate).toLocaleDateString('vi-VN') : '—'}
+                              </td>
+                            </>
+                          )}
+                          {selectedQueueItem.id === 'at-risk-members' && (
+                            <>
+                              <td className="px-4 py-3 text-right font-mono text-zinc-600 dark:text-zinc-300">
+                                {item.startDate ? new Date(item.startDate).toLocaleDateString('vi-VN') : '—'}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                {item.lastVisitAt ? (
+                                  <span className="font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">
+                                    {new Date(item.lastVisitAt).toLocaleDateString('vi-VN')}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                                    Chưa từng tập
+                                  </span>
+                                )}
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Footer Action Buttons */}
+            <div className="mt-2 flex justify-end gap-2 border-t border-stone-100 pt-3 dark:border-zinc-800">
+              <Button variant="ghost" size="sm" onClick={() => setSelectedQueueItem(null)}>
+                Đóng
+              </Button>
+              <Button
+                size="sm"
+                className="font-bold shadow-sm"
+                onClick={() => {
+                  const url = QUEUE_TARGET_URL[selectedQueueItem.id];
+                  setSelectedQueueItem(null);
+                  navigate(url);
+                }}
+              >
+                Tới trang xử lý <ArrowRight size={14} />
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </motion.div>
   );
 }

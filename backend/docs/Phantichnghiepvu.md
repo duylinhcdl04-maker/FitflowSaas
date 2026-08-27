@@ -221,12 +221,12 @@
 
 ### 1. Phạm vi & Ranh giới (Scope & Boundaries)
 * **Phạm vi:** Toàn bộ thông tin cá nhân, quyền lợi thẻ tập, lịch sử tập luyện, giao dịch thanh toán và đặt lịch dịch vụ của chính bản thân.
-* **Ranh giới:** Không truy cập dữ liệu của hội viên khác; không truy cập các cổng thông tin nội bộ của nhân sự phòng tập.
+* **Ranh giới:** Không truy cập dữ liệu của hội viên khác; không truy cập các cổng thông tin nội bộ của nhân sự phòng tập.Mỗi tài khoản chỉ có thể đăng nhập tại cổng đăng nhập của chi nhánh khách hàng được staff tạo tài khoản.
 
 ### 2. Danh mục chức năng (Functional Modules)
 
 #### 2.1. Member Identity & Personal Profile
-* Xem và chỉnh sửa thông tin liên lạc cá nhân (Email, địa chỉ liên hệ).
+* Xem và chỉnh sửa thông tin liên lạc cá nhân (sđt địa chỉ liên hệ, ngày sinh, nơi ở).
 * Quản lý mã định danh số: Truy cập mã **Personal Dynamic QR Code** dùng để Check-in / Check-out tại các điểm kiểm soát.
 * Cung cấp hình ảnh khuôn mặt để đăng ký dịch vụ nhận diện Face ID tại cơ sở.
 

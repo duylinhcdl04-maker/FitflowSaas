@@ -348,10 +348,13 @@ export default function StaffMembersPage() {
                 id="cust-email"
                 type="email"
                 className="w-full rounded-xl border border-slate-300 bg-slate-50 p-2.5 text-xs text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-                placeholder="email@example.com (Không bắt buộc)"
+                placeholder="email@example.com (Điền Email để tự tạo tài khoản)"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
+              <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                💡 Khi điền Email, hệ thống sẽ tự động khởi tạo tài khoản đăng nhập & gửi mật khẩu tạm thời trực tiếp về Gmail cho khách hàng.
+              </p>
             </FormField>
 
             <FormField label="Giới tính" htmlFor="cust-gender">
