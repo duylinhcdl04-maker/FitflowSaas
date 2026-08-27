@@ -16,12 +16,13 @@ async function bootstrap() {
   app.use(cookieParser());
 
   const allowedOrigins = [
-    process.env.FRONTEND_URL,
+    ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : []),
+    ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : []),
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:5175',
     'http://localhost:3000',
-  ].filter(Boolean) as string[];
+  ].map((url) => url.trim()).filter(Boolean);
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -32,10 +33,16 @@ async function bootstrap() {
       const isLocalhost =
         origin.startsWith('http://localhost:') ||
         origin.startsWith('http://127.0.0.1:');
-      if (isLocalhost || allowedOrigins.includes(origin)) {
+      const isFitflowDomain =
+        origin === 'https://fitflow.io.vn' ||
+        origin === 'http://fitflow.io.vn' ||
+        origin.endsWith('.fitflow.io.vn') ||
+        origin.endsWith('.vercel.app');
+
+      if (isLocalhost || isFitflowDomain || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error('Blocked by CORS'));
+        callback(new Error(`Blocked by CORS: ${origin}`));
       }
     },
     credentials: true,
