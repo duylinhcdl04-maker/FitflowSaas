@@ -71,7 +71,7 @@ export default function WelcomePage() {
 
         <div className="mt-6 flex flex-col gap-3 text-left">
           {state.businessName && <CopyRow label="Tên gian hàng" value={state.businessName} tone="emerald" />}
-          {state.brandSlug && <CopyRow label="Địa chỉ truy cập" value={`${state.brandSlug}.fitflow.vn`} tone="emerald" />}
+          {state.brandSlug && <CopyRow label="Địa chỉ truy cập" value={`${state.brandSlug}.fitflow.io.vn`} tone="emerald" />}
           {state.email && <CopyRow label="Tên đăng nhập" value={state.email} />}
           {state.password && <CopyRow label="Mật khẩu" value={state.password} tone="amber" />}
         </div>

@@ -281,7 +281,7 @@ export default function TenantDetailPage() {
             </h1>
             <StatusBadge status={tenant.status} />
           </div>
-          <p className="font-mono mt-1 text-sm text-zinc-500">{tenant.code}.fitflow.vn</p>
+          <p className="font-mono mt-1 text-sm text-zinc-500">{tenant.code}.fitflow.io.vn</p>
           {tenant.status === 'SUSPENDED' && tenant.suspended_reason && (
             <p className="mt-2 text-sm text-red-600 dark:text-red-400">
               Lý do tạm ngưng: {tenant.suspended_reason}

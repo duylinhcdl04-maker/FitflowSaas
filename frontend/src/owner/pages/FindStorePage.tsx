@@ -19,7 +19,20 @@ export default function FindStorePage() {
 
   const mutation = useMutation({
     mutationFn: () => lookupTenant(slug.trim().toLowerCase()),
-    onSuccess: (tenant) => navigate(`/owner/login/${tenant.code}`),
+    onSuccess: (tenant) => {
+      const code = tenant.code;
+      const hostname = window.location.hostname;
+      const protocol = window.location.protocol;
+      const port = window.location.port ? `:${window.location.port}` : '';
+
+      if (hostname.includes('fitflow.io.vn')) {
+        window.location.href = `${protocol}//${code}.fitflow.io.vn/owner/login/${code}`;
+      } else if (hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
+        window.location.href = `${protocol}//${code}.localhost${port}/owner/login/${code}`;
+      } else {
+        navigate(`/owner/login/${code}`);
+      }
+    },
     onError: (err) => setError(apiErrorMessage(err, 'Không tìm thấy cửa hàng với địa chỉ này')),
   });
 
@@ -48,7 +61,7 @@ export default function FindStorePage() {
               onChange={(e) => setSlug(e.target.value)}
             />
             <span className="flex shrink-0 items-center bg-stone-100 px-3 text-sm text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-              .fitflow.vn
+              .fitflow.io.vn
             </span>
           </div>
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

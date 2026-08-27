@@ -18,13 +18,18 @@ import ForgotPasswordModal from '../components/ForgotPasswordModal';
 // Bước 2 của đăng nhập — form mật khẩu thật, gắn nhãn theo đúng cửa hàng vừa
 // tìm ở FindStorePage. Mô phỏng cho URL sau này: `{slug}.fitflow.vn/login`.
 export default function LoginPage() {
-  const { slug } = useParams<{ slug: string }>();
+  let { slug } = useParams<{ slug: string }>();
+  if (!slug) {
+    const hostParts = window.location.hostname.split('.');
+    if (hostParts.length > 2 && hostParts[0] !== 'www') {
+      slug = hostParts[0];
+    }
+  }
+
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // OW-01b. Tài khoản đăng ký xong nhưng bỏ dở bước xác thực OTP đăng nhập sẽ
-  // báo lỗi này — cho họ khôi phục thẳng bằng email thay vì bị kẹt luôn.
   const [pendingActivation, setPendingActivation] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
@@ -101,7 +106,7 @@ export default function LoginPage() {
               Đăng nhập vào {tenantQuery.data?.name}
             </h1>
           )}
-          <p className="font-mono text-sm text-zinc-500 dark:text-zinc-400">{slug}.fitflow.vn</p>
+          <p className="font-mono text-sm text-zinc-500 dark:text-zinc-400">{slug}.fitflow.io.vn</p>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
