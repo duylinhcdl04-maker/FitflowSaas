@@ -222,7 +222,7 @@ export default function RegisterPage() {
                   id="brandSlug"
                   required
                   placeholder="fitflow-cau-giay"
-                  pattern="[a-z0-9-]{2,50}"
+                  pattern="[a-z0-9\\-]{2,50}"
                   className="min-w-0 flex-1 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:bg-zinc-900 dark:text-zinc-100"
                   value={business.brandSlug}
                   onChange={(e) => {
