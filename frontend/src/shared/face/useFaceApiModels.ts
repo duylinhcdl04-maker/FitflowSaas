@@ -1,22 +1,32 @@
 import { useEffect, useState } from 'react';
 import * as faceapi from '@vladmandic/face-api';
 
-// Model weights copy trực tiếp từ node_modules/@vladmandic/face-api/model vào
-// frontend/public/models/ — tự host, không dùng CDN (backend/docs/face-checkin.md §4.1).
-const MODEL_URL = '/models';
+const LOCAL_MODEL_URL = '/models';
+const CDN_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
 
 // Module-level singleton: model chỉ tải 1 lần cho toàn bộ app dù bao nhiêu component gọi
 // hook này (mở/đóng modal enroll nhiều lần, hoặc kiosk mount lại) — tránh tải lại ~6.8MB
 // model mỗi lần mount.
 let loadPromise: Promise<void> | null = null;
 
+async function fetchAndLoad(url: string): Promise<void> {
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(url),
+    faceapi.nets.faceLandmark68Net.loadFromUri(url),
+    faceapi.nets.faceRecognitionNet.loadFromUri(url),
+  ]);
+}
+
 function loadModels(): Promise<void> {
   if (!loadPromise) {
-    loadPromise = Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-    ]).then(() => undefined);
+    loadPromise = (async () => {
+      try {
+        await fetchAndLoad(LOCAL_MODEL_URL);
+      } catch (err) {
+        console.warn('FitFlow Face-API: Không tải được model cục bộ, đang tự động fallback sang CDN...', err);
+        await fetchAndLoad(CDN_MODEL_URL);
+      }
+    })();
   }
   return loadPromise;
 }
