@@ -38,7 +38,7 @@ export default function InvoicesPage() {
         <h1 className="font-display text-2xl font-bold text-zinc-900 dark:text-zinc-50">Hoá đơn SaaS</h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           Hoá đơn thuê bao nền tảng (Tenant trả FitFlow) — tách biệt hoàn toàn với thanh toán khách hàng
-          của từng Tenant (BR-SA-004).
+          của từng Tenant.
         </p>
       </div>
 

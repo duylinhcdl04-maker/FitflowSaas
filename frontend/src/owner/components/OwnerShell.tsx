@@ -19,12 +19,15 @@ import {
   SidebarSimple,
   CaretLeft,
   CaretRight,
+  Storefront,
+  Barbell,
 } from '@phosphor-icons/react';
 import { useAuthStore } from '../store/auth-store';
 import { logout } from '../api/auth';
 import { getDashboardOverview } from '../api/dashboard';
 import Tooltip from './Tooltip';
 import NotificationBell from './NotificationBell';
+import PortalSwitcher from './PortalSwitcher';
 import { showConfirm, showToast } from '../utils/swal';
 
 const NAV_LINKS = [
@@ -36,6 +39,11 @@ const NAV_LINKS = [
   { to: '/owner/branches', label: 'Chi nhánh', icon: Buildings, end: false },
   { to: '/owner/subscription', label: 'Gói sử dụng', icon: CreditCard, end: false },
   { to: '/owner/settings', label: 'Cài đặt', icon: Gear, end: false },
+];
+
+const OPERATIONAL_PORTALS = [
+  { to: '/staff', label: 'Quầy Lễ tân (POS)', icon: Storefront, color: 'text-emerald-500 dark:text-emerald-400' },
+  { to: '/manager', label: 'Quản lý Chi nhánh', icon: Buildings, color: 'text-blue-500 dark:text-blue-400' },
 ];
 
 export default function OwnerShell() {
@@ -187,6 +195,41 @@ export default function OwnerShell() {
                 </Tooltip>
               );
             })}
+
+            {/* Phân hệ vận hành (Direct role portals - KiotViet style) */}
+            <div className="pt-2 flex flex-col gap-1">
+              {!collapsed && (
+                <span className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                  Phân hệ vận hành
+                </span>
+              )}
+              {collapsed && <div className="my-1.5 h-px w-8 bg-stone-200 dark:bg-zinc-800 self-center" />}
+              {OPERATIONAL_PORTALS.map((portal) => {
+                const Icon = portal.icon;
+                return (
+                  <Tooltip key={portal.to} content={portal.label} disabled={!collapsed} placement="right">
+                    <NavLink
+                      to={portal.to}
+                      onClick={() => setMobileOpen(false)}
+                      className={({ isActive }) =>
+                        `group flex items-center transition-all ${
+                          collapsed
+                            ? 'h-10 w-10 justify-center rounded-xl'
+                            : 'gap-3 rounded-xl px-3 py-2 text-xs font-semibold'
+                        } ${
+                          isActive
+                            ? 'bg-emerald-50 text-emerald-700 shadow-sm dark:bg-emerald-500/10 dark:text-emerald-400'
+                            : 'text-zinc-600 hover:bg-stone-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100'
+                        }`
+                      }
+                    >
+                      <Icon size={18} className={`shrink-0 transition-transform group-hover:scale-110 ${portal.color}`} />
+                      {!collapsed && <span className="truncate">{portal.label}</span>}
+                    </NavLink>
+                  </Tooltip>
+                );
+              })}
+            </div>
           </nav>
         </div>
 
@@ -267,7 +310,21 @@ export default function OwnerShell() {
           </div>
 
           {/* Right Header Controls */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
+            {/* KiotViet Style Quick Action Button: Quầy Bán hàng / Lễ tân */}
+            <button
+              type="button"
+              onClick={() => navigate('/staff')}
+              className="hidden md:inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-emerald-900/20 transition-all cursor-pointer shrink-0"
+              title="Vào ngay giao diện quầy Lễ tân & Bán hàng POS (KiotViet style)"
+            >
+              <Storefront size={16} weight="fill" />
+              <span>Quầy Lễ tân (POS)</span>
+            </button>
+
+            {/* Portal Switcher Dropdown (KiotViet style) */}
+            <PortalSwitcher variant="header" />
+
             {/* Collapse Toggle Shortcut in Header */}
             <button
               onClick={toggleCollapsed}

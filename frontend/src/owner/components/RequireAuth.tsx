@@ -1,10 +1,12 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../store/auth-store';
+import { useTenant } from '../../tenant/tenant-context';
 
 export default function RequireAuth() {
   const accessToken = useAuthStore((s) => s.accessToken);
   const user = useAuthStore((s) => s.user);
   const isHydrating = useAuthStore((s) => s.isHydrating);
+  const { tenant } = useTenant();
 
   if (isHydrating) {
     return (
@@ -18,6 +20,11 @@ export default function RequireAuth() {
   }
 
   if (!accessToken) {
+    return <Navigate to="/owner/login" replace />;
+  }
+
+  if (user?.tenantId && tenant?.id && user.tenantId !== tenant.id) {
+    useAuthStore.getState().clearSession();
     return <Navigate to="/owner/login" replace />;
   }
 

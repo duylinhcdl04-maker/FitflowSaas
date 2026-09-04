@@ -128,6 +128,7 @@ export class SalesFulfillmentService {
         session_duration_minutes: plan.session_duration_minutes || 60,
         total_sessions: plan.session_count,
         used_sessions: 0,
+        remaining_sessions: plan.session_count,
         start_date: startDate,
         expiry_date: expiryDate,
         status: 'ACTIVE',

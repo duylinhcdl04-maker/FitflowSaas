@@ -27,34 +27,37 @@ import SettingsPage from './pages/SettingsPage';
 //
 // Đăng nhập 2 bước kiểu KiotViet: /login (nhập tên cửa hàng) → /login/:slug
 // (form mật khẩu thật) — mô phỏng subdomain `{slug}.fitflow.vn` bằng route
-// nội bộ vì chưa có domain thật.
+import { TenantGuard } from '../tenant/tenant-guard';
+
 export default function OwnerApp() {
   useBootstrapAuth();
 
   return (
     <Routes>
-      <Route path="login" element={<FindStorePage />} />
-      <Route path="login/:slug" element={<LoginPage />} />
-      <Route path="register" element={<RegisterPage />} />
-      <Route path="verify-otp" element={<VerifyOtpPage />} />
+      <Route element={<TenantGuard />}>
+        <Route path="login" element={<LoginPage />} />
+        <Route path="login/:slug" element={<LoginPage />} />
+        <Route path="register" element={<RegisterPage />} />
+        <Route path="verify-otp" element={<VerifyOtpPage />} />
 
-      <Route element={<RequireAuth />}>
-        <Route path="welcome" element={<WelcomePage />} />
+        <Route element={<RequireAuth />}>
+          <Route path="welcome" element={<WelcomePage />} />
 
-        <Route element={<OwnerShell />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="onboarding" element={<OnboardingPage />} />
-          <Route path="subscription" element={<SubscriptionPage />} />
-          <Route path="subscription/expired" element={<TrialExpiredPage />} />
-          <Route path="branches" element={<BranchesPage />} />
-          <Route path="branches/:id" element={<BranchDetailPage />} />
-          <Route path="branch-managers" element={<BranchManagersPage />} />
-          <Route path="customers" element={<CustomersPage />} />
-          <Route path="customers/:id" element={<CustomerDetailPage />} />
-          <Route path="checkin" element={<CheckinPage />} />
-          <Route path="memberships" element={<MembershipsPage />} />
-          <Route path="pt" element={<PtPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route element={<OwnerShell />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="onboarding" element={<OnboardingPage />} />
+            <Route path="subscription" element={<SubscriptionPage />} />
+            <Route path="subscription/expired" element={<TrialExpiredPage />} />
+            <Route path="branches" element={<BranchesPage />} />
+            <Route path="branches/:id" element={<BranchDetailPage />} />
+            <Route path="branch-managers" element={<BranchManagersPage />} />
+            <Route path="customers" element={<CustomersPage />} />
+            <Route path="customers/:id" element={<CustomerDetailPage />} />
+            <Route path="checkin" element={<CheckinPage />} />
+            <Route path="memberships" element={<MembershipsPage />} />
+            <Route path="pt" element={<PtPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
         </Route>
       </Route>
     </Routes>

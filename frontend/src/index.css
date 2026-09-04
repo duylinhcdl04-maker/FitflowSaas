@@ -13,6 +13,8 @@
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
 }
 
 /* `scrollbar-none` was already referenced in a few places (e.g. StaffShell's tab strip)

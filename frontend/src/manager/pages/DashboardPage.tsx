@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -20,7 +20,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getManagerDashboardOverview, getManagerDashboardPerformance, type ManagerDashboardOverview } from '../api/manager';
+import {
+  getManagerDashboardOverview,
+  getManagerDashboardPerformance,
+  formatOperatingTime,
+  type ManagerDashboardOverview,
+  type ManagerContext,
+} from '../api/manager';
 import { useRealtimeInvalidate } from '../../lib/useRealtimeInvalidate';
 import Card from '../../owner/components/Card';
 import KpiCard from '../../owner/components/KpiCard';
@@ -39,6 +45,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 
 const QUEUE_TARGET_URL: Record<ManagerDashboardOverview['actionCenter'][number]['id'], string> = {
   'pending-payments': '/manager/memberships',
+  'pending-pt-plans': '/manager/memberships',
   'expiring-memberships': '/manager/customers',
   'at-risk-members': '/manager/customers',
 };
@@ -94,6 +101,9 @@ const fadeUp = {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const outletCtx = useOutletContext<{ context?: ManagerContext }>();
+  const branch = outletCtx?.context?.branch;
+
   const [range, setRange] = useState<(typeof RANGE_OPTIONS)[number]>(RANGE_OPTIONS[1]);
   const [groupBy, setGroupBy] = useState<'day' | 'week' | 'month'>('day');
   const [activeTab, setActiveTab] = useState<'revenue' | 'members' | 'pt'>('revenue');
@@ -106,14 +116,14 @@ export default function DashboardPage() {
 
   // TẦNG 1 — real-time, KHÔNG chịu ảnh hưởng của bộ lọc ngày (đúng như nhãn hiển thị).
   const { data: overview, isLoading, refetch } = useQuery({
-    queryKey: ['manager-dashboard-overview'],
-    queryFn: () => getManagerDashboardOverview(),
+    queryKey: ['manager-dashboard-overview', branch?.id],
+    queryFn: () => getManagerDashboardOverview(branch?.id),
     refetchInterval: 30000,
   });
 
   // TẦNG 2 — dữ liệu thật theo khoảng ngày đã chọn (trước đây là số liệu cứng, không đổi theo bộ lọc).
   const { data: performance, isLoading: isPerformanceLoading } = useQuery({
-    queryKey: ['manager-dashboard-performance', range.key, groupBy],
+    queryKey: ['manager-dashboard-performance', branch?.id, range.key, groupBy],
     queryFn: () =>
       getManagerDashboardPerformance({
         from: from.toISOString(),
@@ -148,8 +158,32 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold leading-tight text-zinc-900 dark:text-zinc-50">Tổng quan chi nhánh</h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Vận hành thời gian thực & hiệu suất kinh doanh của chi nhánh bạn phụ trách</p>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-2xl font-bold leading-tight text-zinc-900 dark:text-zinc-50">
+              Tổng quan chi nhánh: <span className="text-emerald-600 dark:text-emerald-400 font-black">{branch?.name || 'Chi nhánh'}</span>
+            </h1>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400 flex flex-wrap items-center gap-2">
+            <span>Vận hành thời gian thực & hiệu suất cơ sở</span>
+            {branch?.address && (
+              <>
+                <span>·</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">📍 {branch.address}</span>
+              </>
+            )}
+            {branch?.phone && (
+              <>
+                <span>·</span>
+                <span>📞 Hotline: <strong className="text-zinc-700 dark:text-zinc-300">{branch.phone}</strong></span>
+              </>
+            )}
+            {formatOperatingTime(branch?.openingTime, branch?.closingTime) && (
+              <>
+                <span>·</span>
+                <span>⏰ {formatOperatingTime(branch?.openingTime, branch?.closingTime)}</span>
+              </>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-400">
           <span className="relative flex h-2 w-2">
@@ -601,12 +635,19 @@ export default function DashboardPage() {
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-stone-200 bg-stone-50/90 font-semibold text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/80 dark:text-zinc-400">
-                      <th className="px-4 py-3">Hội viên</th>
+                      <th className="px-4 py-3">{selectedQueueItem.id === 'pending-pt-plans' ? 'HLV đề xuất' : 'Hội viên'}</th>
                       <th className="px-4 py-3">Số điện thoại</th>
                       {selectedQueueItem.id === 'pending-payments' && (
                         <>
                           <th className="px-4 py-3">Phương thức</th>
                           <th className="px-4 py-3 text-right">Số tiền</th>
+                        </>
+                      )}
+                      {selectedQueueItem.id === 'pending-pt-plans' && (
+                        <>
+                          <th className="px-4 py-3">Gói PT đề xuất</th>
+                          <th className="px-4 py-3 text-center">Số buổi</th>
+                          <th className="px-4 py-3 text-right">Giá đề xuất</th>
                         </>
                       )}
                       {selectedQueueItem.id === 'expiring-memberships' && (
@@ -617,15 +658,18 @@ export default function DashboardPage() {
                       )}
                       {selectedQueueItem.id === 'at-risk-members' && (
                         <>
-                          <th className="px-4 py-3 text-right">Ngày đăng ký</th>
-                          <th className="px-4 py-3 text-right">Lần tập gần nhất</th>
+                          <th className="px-4 py-3">Gói tập</th>
+                          <th className="px-4 py-3 text-center">Mốc tính hoạt động</th>
+                          <th className="px-4 py-3 text-right">Số ngày vắng mặt</th>
                         </>
                       )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 dark:divide-zinc-800/60">
                     {selectedQueueItem.items.map((item) => {
-                      const avatarGradient = getAvatarGradient(item.customerName);
+                      const displayName = item.customerName || item.ptName || '—';
+                      const displayPhone = item.customerPhone || item.ptPhone || '—';
+                      const avatarGradient = getAvatarGradient(displayName);
                       return (
                         <tr key={item.id} className="group hover:bg-stone-50/80 dark:hover:bg-zinc-900/60 transition-colors">
                           <td className="px-4 py-3">
@@ -633,16 +677,16 @@ export default function DashboardPage() {
                               <div
                                 className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br font-display text-xs font-bold shadow-xs ${avatarGradient}`}
                               >
-                                {getInitials(item.customerName)}
+                                {getInitials(displayName)}
                               </div>
                               <span className="font-bold text-zinc-900 dark:text-zinc-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
-                                {item.customerName}
+                                {displayName}
                               </span>
                             </div>
                           </td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                              {item.customerPhone || '—'}
+                              {displayPhone}
                             </span>
                           </td>
                           {selectedQueueItem.id === 'pending-payments' && (
@@ -654,6 +698,19 @@ export default function DashboardPage() {
                               </td>
                               <td className="px-4 py-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
                                 {item.amount != null ? formatMoney(item.amount) : '—'}
+                              </td>
+                            </>
+                          )}
+                          {selectedQueueItem.id === 'pending-pt-plans' && (
+                            <>
+                              <td className="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100">
+                                {item.name || '—'}
+                              </td>
+                              <td className="px-4 py-3 text-center font-mono font-bold text-zinc-700 dark:text-zinc-300">
+                                {item.sessionCount ?? '—'} buổi
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                {item.price != null ? formatMoney(item.price) : '—'}
                               </td>
                             </>
                           )}
@@ -669,17 +726,32 @@ export default function DashboardPage() {
                           )}
                           {selectedQueueItem.id === 'at-risk-members' && (
                             <>
-                              <td className="px-4 py-3 text-right font-mono text-zinc-600 dark:text-zinc-300">
-                                {item.startDate ? new Date(item.startDate).toLocaleDateString('vi-VN') : '—'}
+                              <td className="px-4 py-3 font-medium text-emerald-700 dark:text-emerald-400">
+                                {item.packageName || 'Gói tập'}
                               </td>
-                              <td className="px-4 py-3 text-right">
-                                {item.lastVisitAt ? (
-                                  <span className="font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">
-                                    {new Date(item.lastVisitAt).toLocaleDateString('vi-VN')}
+                              <td className="px-4 py-3 text-center">
+                                {item.isNeverAttended ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                                    Chưa từng tập (tính từ ngày thẻ: {item.startDate ? new Date(item.startDate).toLocaleDateString('vi-VN') : '—'})
+                                  </span>
+                                ) : item.lastVisitAt ? (
+                                  <span className="font-mono text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                    Lần tập gần nhất: {new Date(item.lastVisitAt).toLocaleDateString('vi-VN')}
                                   </span>
                                 ) : (
-                                  <span className="inline-flex rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
-                                    Chưa từng tập
+                                  <span className="font-mono text-xs text-slate-500">
+                                    {item.startDate ? new Date(item.startDate).toLocaleDateString('vi-VN') : '—'}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono">
+                                {(item.inactiveDays ?? 0) >= 30 ? (
+                                  <span className="inline-flex rounded-lg bg-rose-100 px-2.5 py-1 text-xs font-extrabold text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                    🔴 {item.inactiveDays} ngày (Nguy cơ cao)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                    🟠 {item.inactiveDays} ngày
                                   </span>
                                 )}
                               </td>

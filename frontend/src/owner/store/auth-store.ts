@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export interface OwnerUser {
   id: string;
@@ -19,15 +20,28 @@ interface AuthState {
   setHydrating: (value: boolean) => void;
 }
 
-// Store riêng cho Owner Portal (không dùng chung với admin/store/auth-store.ts)
-// — hai khu vực là hai phiên đăng nhập độc lập theo quyết định "xây bộ nhận
-// diện riêng" cho Owner.
-export const useAuthStore = create<AuthState>((set) => ({
-  accessToken: null,
-  user: null,
-  isHydrating: true,
-  setSession: (accessToken, user) => set({ accessToken, user }),
-  setAccessToken: (accessToken) => set({ accessToken }),
-  clearSession: () => set({ accessToken: null, user: null }),
-  setHydrating: (value) => set({ isHydrating: value }),
-}));
+// Store cho App (Owner, Manager, Staff, PT, Customer) — dùng localStorage để duy trì phiên khi F5 reload.
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      accessToken: null,
+      user: null,
+      isHydrating: true,
+      setSession: (accessToken, user) => set({ accessToken, user, isHydrating: false }),
+      setAccessToken: (accessToken) => set({ accessToken }),
+      clearSession: () => set({ accessToken: null, user: null, isHydrating: false }),
+      setHydrating: (value) => set({ isHydrating: value }),
+    }),
+    {
+      name: 'fitflow_auth_session',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        user: state.user,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrating(false);
+      },
+    }
+  )
+);

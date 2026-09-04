@@ -24,7 +24,7 @@ export class AuthService {
    * email/password flow for everyone; the Customer Portal (dynamic QR) is a
    * separate in-app surface used *after* login, not a different login method.
    */
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, expectedTenantId?: string | null) {
     const user = await this.prisma.user.findFirst({
       where: {
         user_type: { in: ['PLATFORM', 'TENANT', 'CUSTOMER'] },
@@ -50,6 +50,15 @@ export class AuthService {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
     }
 
+    // Nếu request đăng nhập từ tenant context cụ thể (subdomain / tenant header)
+    if (expectedTenantId && user.user_type !== 'PLATFORM') {
+      if (user.tenant_id !== expectedTenantId) {
+        throw new UnauthorizedException(
+          'Tài khoản này không thuộc cửa hàng hiện tại',
+        );
+      }
+    }
+
     // BR-SA-003: a suspended/inactive tenant blocks login for every user under it.
     // Not reachable for PLATFORM users today (tenant_id is always null) but kept
     // so this same login path stays correct once tenant-side auth reuses it.
@@ -63,7 +72,7 @@ export class AuthService {
         (tenant.status === 'SUSPENDED' || tenant.status === 'INACTIVE')
       ) {
         throw new ForbiddenException(
-          this.statusMessage(tenant.status, 'Doanh nghiệp'),
+          this.statusMessage(tenant.status, 'Cửa hàng'),
         );
       }
     }
@@ -88,6 +97,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         fullName: user.full_name,
+        tenantId: user.tenant_id,
         roles,
         mustChangePassword: user.must_change_password,
       },

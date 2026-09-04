@@ -1,298 +1,534 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { QrCode, SignOut, ArrowCounterClockwise, MagnifyingGlass, Check, Scan } from '@phosphor-icons/react';
-import { getCurrentlyInGym, getManagerCustomers, manualCheckin, manualCheckout, qrScanCheckin, undoCheckin } from '../../api/manager';
+import {
+  IdentificationCard,
+  MagnifyingGlass,
+  CheckCircle,
+  WarningCircle,
+  Clock,
+  ArrowCounterClockwise,
+  UserCheck,
+  SignOut,
+  XCircle,
+  ShieldWarning,
+  Scan,
+  SignIn,
+} from '@phosphor-icons/react';
+import {
+  getManagerCustomers,
+  manualCheckin,
+  manualCheckout,
+  undoCheckin,
+  getCurrentlyInGym,
+  getBranchPackages,
+  qrScanCheckin,
+  type QrScanCustomer,
+} from '../../api/manager';
 import { apiErrorMessage } from '../../../owner/api/client';
-import Card from '../../../owner/components/Card';
-import Button from '../../../owner/components/Button';
-import FormField, { inputClass } from '../../../owner/components/FormField';
 import Modal from '../../../owner/components/Modal';
-import { Skeleton } from '../../../owner/components/Skeleton';
+import FormField, { inputClass } from '../../../owner/components/FormField';
+import Button from '../../../owner/components/Button';
+import Callout from '../../../owner/components/Callout';
+import MemberDetailModal from '../../components/MemberDetailModal';
+import QrCameraScanner from '../../../staff/components/QrCameraScanner';
+import { useRealtimeInvalidate } from '../../../lib/useRealtimeInvalidate';
+
+const QR_TOAST_DURATION_MS = 5000;
 
 export default function ManagerCheckinPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
-  const [qrInput, setQrInput] = useState('');
-  const [undoModalOpen, setUndoModalOpen] = useState(false);
-  const [selectedAttendanceId, setSelectedAttendanceId] = useState<string | null>(null);
-  const [undoReason, setUndoReason] = useState('');
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Queries
-  const { data: currentlyInGym, isLoading: isGymLoading } = useQuery({
-    queryKey: ['manager-currently-in-gym'],
-    queryFn: () => getCurrentlyInGym(),
-    refetchInterval: 10000,
+  // --- Dynamic QR scan gate ---
+  const [qrInput, setQrInput] = useState('');
+  const [qrToast, setQrToast] = useState<{ action: 'CHECKED_IN' | 'CHECKED_OUT'; customer: QrScanCustomer } | null>(null);
+  const [qrDetailCustomer, setQrDetailCustomer] = useState<QrScanCustomer | null>(null);
+
+  const { data: branchPackages = [] } = useQuery({
+    queryKey: ['manager-branch-packages'],
+    queryFn: getBranchPackages,
   });
 
-  const { data: customerRes } = useQuery({
-    queryKey: ['manager-customers-search', search],
+  // Undo Checkin Modal State
+  const [undoModalOpen, setUndoModalOpen] = useState(false);
+  const [targetAttendance, setTargetAttendance] = useState<any | null>(null);
+  const [undoReason, setUndoReason] = useState('');
+
+  // Live search query for customers
+  const { data: customerData, isLoading: searching } = useQuery({
+    queryKey: ['manager-checkin-search', search],
     queryFn: () => getManagerCustomers(search),
     enabled: search.trim().length >= 2,
   });
-  const customers = customerRes?.items || [];
 
-  // Mutations
+  // Query currently in gym — realtime push (attendance:updated) is primary update path
+  const { data: inGymList = [] } = useQuery({
+    queryKey: ['manager-currently-in-gym'],
+    queryFn: () => getCurrentlyInGym(),
+    refetchInterval: 60000,
+  });
+
+  useRealtimeInvalidate('attendance:updated', [['manager-currently-in-gym']]);
+
+  const qrScanMutation = useMutation({
+    mutationFn: (token: string) => qrScanCheckin(token),
+    onSuccess: (data) => {
+      setQrToast(data);
+      setQrInput('');
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['manager-currently-in-gym'] });
+      queryClient.invalidateQueries({ queryKey: ['manager-dashboard-overview'] });
+    },
+    onError: (err) => {
+      setError(apiErrorMessage(err, 'Mã QR không hợp lệ hoặc đã hết hạn'));
+      setSuccessMsg(null);
+    },
+  });
+
+  useEffect(() => {
+    if (!qrToast) return;
+    const timer = setTimeout(() => setQrToast(null), QR_TOAST_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [qrToast]);
+
+  function handleQrSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!qrInput.trim() || qrScanMutation.isPending) return;
+    setError(null);
+    qrScanMutation.mutate(qrInput.trim());
+  }
+
+  function handleCameraDecode(text: string) {
+    setError(null);
+    qrScanMutation.mutate(text);
+  }
+
   const checkinMutation = useMutation({
     mutationFn: (customerId: string) => manualCheckin(customerId),
     onSuccess: () => {
-      setActionSuccess('Check-in thành công!');
-      setActionError(null);
+      setSuccessMsg('Check-in thành công!');
+      setError(null);
+      setSelectedCustomer(null);
       setSearch('');
       queryClient.invalidateQueries({ queryKey: ['manager-currently-in-gym'] });
       queryClient.invalidateQueries({ queryKey: ['manager-dashboard-overview'] });
-      setTimeout(() => setActionSuccess(null), 3000);
     },
-    onError: (err) => setActionError(apiErrorMessage(err, 'Không thể thực hiện Check-in')),
+    onError: (err) => {
+      setError(apiErrorMessage(err, 'Check-in không thành công'));
+      setSuccessMsg(null);
+    },
   });
 
   const checkoutMutation = useMutation({
     mutationFn: (attendanceId: string) => manualCheckout(attendanceId),
     onSuccess: () => {
-      setActionSuccess('Check-out thành công!');
-      setActionError(null);
+      setSuccessMsg('Đã Check-out thành công!');
+      setError(null);
       queryClient.invalidateQueries({ queryKey: ['manager-currently-in-gym'] });
       queryClient.invalidateQueries({ queryKey: ['manager-dashboard-overview'] });
-      setTimeout(() => setActionSuccess(null), 3000);
     },
-    onError: (err) => setActionError(apiErrorMessage(err, 'Không thể thực hiện Check-out')),
-  });
-
-  const qrScanMutation = useMutation({
-    mutationFn: (token: string) => qrScanCheckin(token),
-    onSuccess: (data) => {
-      setActionSuccess(
-        data.action === 'CHECKED_IN'
-          ? `Đã Check-in cho ${data.customer.full_name} qua mã QR!`
-          : `Đã Check-out cho ${data.customer.full_name} qua mã QR!`,
-      );
-      setActionError(null);
-      setQrInput('');
-      queryClient.invalidateQueries({ queryKey: ['manager-currently-in-gym'] });
-      queryClient.invalidateQueries({ queryKey: ['manager-dashboard-overview'] });
-      setTimeout(() => setActionSuccess(null), 3000);
+    onError: (err) => {
+      setError(apiErrorMessage(err, 'Không thể Check-out'));
+      setSuccessMsg(null);
     },
-    onError: (err) => setActionError(apiErrorMessage(err, 'Mã QR không hợp lệ hoặc đã hết hạn')),
   });
-
-  function handleQrSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!qrInput.trim() || qrScanMutation.isPending) return;
-    qrScanMutation.mutate(qrInput.trim());
-  }
 
   const undoMutation = useMutation({
-    mutationFn: () => undoCheckin(selectedAttendanceId!, undoReason),
+    mutationFn: () => undoCheckin(targetAttendance.id, undoReason),
     onSuccess: () => {
+      setSuccessMsg('Đã hoàn tác lượt Check-in thành công!');
       setUndoModalOpen(false);
+      setTargetAttendance(null);
       setUndoReason('');
-      setSelectedAttendanceId(null);
-      setActionSuccess('Đã hoàn tác lượt Check-in!');
-      setActionError(null);
       queryClient.invalidateQueries({ queryKey: ['manager-currently-in-gym'] });
       queryClient.invalidateQueries({ queryKey: ['manager-dashboard-overview'] });
-      setTimeout(() => setActionSuccess(null), 3000);
     },
-    onError: (err) => setActionError(apiErrorMessage(err, 'Không thể hoàn tác Check-in')),
+    onError: (err) => {
+      setError(apiErrorMessage(err, 'Không thể hủy lượt check-in'));
+    },
   });
 
-  function handleOpenUndo(id: string) {
-    setSelectedAttendanceId(id);
-    setUndoReason('');
-    setUndoModalOpen(true);
+  function handleSelectCustomer(cust: any) {
+    setSelectedCustomer(cust);
+    setError(null);
+    setSuccessMsg(null);
   }
 
-  function handleUndoSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!undoReason.trim()) return;
-    undoMutation.mutate();
+  function handleCheckinClick(customerId: string) {
+    setError(null);
+    setSuccessMsg(null);
+    checkinMutation.mutate(customerId);
+  }
+
+  function handleOpenUndoModal(item: any) {
+    setTargetAttendance(item);
+    setUndoReason('');
+    setError(null);
+    setUndoModalOpen(true);
   }
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Header Title */}
       <div>
-        <h1 className="font-display text-2xl font-bold text-zinc-900 dark:text-zinc-50">Vận hành Check-in quầy</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Thực hiện Check-in / Check-out thủ công, theo dõi danh sách khách đang có mặt tại chi nhánh
+        <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <IdentificationCard className="text-emerald-600 dark:text-emerald-400" size={28} />
+          Bàn Vận Hành & Kiểm Soát Check-in Quầy (Manager)
+        </h1>
+        <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
+          Quét mã QR tự động qua Camera / Máy quét cầm tay, tra cứu thông tin hội viên và quản lý danh sách đang ở phòng tập.
         </p>
       </div>
 
-      {actionError && (
-        <div className="rounded-xl bg-red-50 p-4 text-sm font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">
-          {actionError}
-        </div>
-      )}
-      {actionSuccess && (
-        <div className="rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 flex items-center gap-2">
-          <Check size={18} /> {actionSuccess}
-        </div>
-      )}
+      {/* Main Check-in Split Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: Search & Checkin Panel */}
+        <div className="lg:col-span-6 flex flex-col gap-5">
+          {/* Cổng quét QR động — quét/dán mã từ Customer Portal, tự Check-in/Check-out */}
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/10">
+            <h2 className="font-bold text-slate-900 dark:text-white text-base mb-1 flex items-center gap-2">
+              <Scan size={20} className="text-emerald-600 dark:text-emerald-400" /> Cổng Quét QR Hội Viên
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mb-3">
+              Bật camera để tự động quét mã QR động từ app hội viên, hoặc dùng máy quét QR vật lý / dán mã thủ công bên dưới — tự động Check-in nếu đang ở ngoài, Check-out nếu đang ở trong phòng tập.
+            </p>
 
-      {/* DYNAMIC QR SCAN — consumes the customer's Customer Portal QR (auto-rotates ~45s) */}
-      <Card className="max-w-2xl border-emerald-200/70 dark:border-emerald-900/40">
-        <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-50 mb-3 flex items-center gap-2">
-          <Scan size={20} className="text-emerald-600 dark:text-emerald-400" /> Quét mã QR hội viên
-        </h2>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
-          Quét (hoặc dán) mã QR động từ ứng dụng của hội viên — hệ thống tự động Check-in nếu đang ở ngoài, Check-out nếu đang ở trong phòng tập.
-        </p>
-        <form onSubmit={handleQrSubmit} className="flex gap-2">
-          <input
-            type="text"
-            autoFocus
-            className={inputClass}
-            placeholder="Quét mã QR hoặc dán mã tại đây..."
-            value={qrInput}
-            onChange={(e) => setQrInput(e.target.value)}
-          />
-          <Button type="submit" disabled={qrScanMutation.isPending || !qrInput.trim()}>
-            {qrScanMutation.isPending ? 'Đang xử lý...' : 'Xác nhận'}
-          </Button>
-        </form>
-      </Card>
+            <QrCameraScanner onDecode={handleCameraDecode} />
 
-      {/* CHECK-IN SEARCH & QUICK DESK */}
-      <Card className="max-w-2xl">
-        <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-50 mb-3 flex items-center gap-2">
-          <QrCode size={20} className="text-emerald-600 dark:text-emerald-400" /> Tìm kiếm hội viên để Check-in
-        </h2>
+            <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-zinc-800" /> hoặc <span className="h-px flex-1 bg-slate-200 dark:bg-zinc-800" />
+            </div>
 
-        <div className="relative">
-          <MagnifyingGlass size={18} className="absolute left-3.5 top-3 text-zinc-400" />
-          <input
-            type="text"
-            className={`${inputClass} pl-10`}
-            placeholder="Nhập tên hội viên, số điện thoại hoặc mã QR..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        {search.trim().length >= 2 && (
-          <div className="mt-3 flex flex-col gap-2 max-h-60 overflow-y-auto border-t border-stone-100 pt-3 dark:border-zinc-800">
-            {customers && customers.length > 0 ? (
-              customers.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex justify-between items-center rounded-xl bg-stone-50 p-3 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-800"
-                >
-                  <div>
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{c.full_name}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">SĐT: {c.phone || 'N/A'} • Mã: {c.customer_code}</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    disabled={checkinMutation.isPending}
-                    onClick={() => checkinMutation.mutate(c.id)}
-                  >
-                    Check-in
-                  </Button>
-                </div>
-              ))
-            ) : (
-              <p className="text-center py-4 text-xs text-zinc-400">Không tìm thấy hội viên phù hợp.</p>
-            )}
+            <form onSubmit={handleQrSubmit} className="flex gap-2">
+              <input
+                type="text"
+                className={inputClass}
+                placeholder="Quét mã QR (Máy quét vật lý) hoặc dán mã tại đây..."
+                value={qrInput}
+                onChange={(e) => setQrInput(e.target.value)}
+              />
+              <Button type="submit" disabled={qrScanMutation.isPending || !qrInput.trim()}>
+                {qrScanMutation.isPending ? 'Đang xử lý...' : 'Xác nhận'}
+              </Button>
+            </form>
           </div>
-        )}
-      </Card>
 
-      {/* CURRENTLY IN GYM LIST */}
-      <div>
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-50">
-            Đang ở phòng tập ngay lúc này ({currentlyInGym?.length || 0} khách)
-          </h2>
-          <span className="text-xs text-zinc-400">Tự động cập nhật mỗi 10 giây</span>
-        </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="font-bold text-slate-900 dark:text-white text-base mb-3 flex items-center gap-2">
+              <MagnifyingGlass size={20} className="text-emerald-600" /> Tra Cứu & Quét Thẻ Hội Viên
+            </h2>
 
-        {isGymLoading ? (
-          <Skeleton className="h-64 w-full" />
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {currentlyInGym && currentlyInGym.length > 0 ? (
-              currentlyInGym.map((item) => (
-                <Card key={item.id} className="relative flex flex-col justify-between border border-stone-200 dark:border-zinc-800">
-                  <div>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
-                          {item.attendanceType}
-                        </span>
-                        <h3 className="font-display text-sm font-bold text-zinc-900 dark:text-zinc-50 mt-1">
-                          {item.customer.full_name}
-                        </h3>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">SĐT: {item.customer.phone || 'Chưa có SĐT'}</p>
+            {/* Search Input */}
+            <div className="relative">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Nhập SĐT, Mã hội viên (HV-...), hoặc Họ tên..."
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
+              />
+              <MagnifyingGlass size={18} className="absolute left-3 top-3.5 text-slate-400" />
+            </div>
+
+            {/* Success or Error Callouts */}
+            {successMsg && (
+              <div className="mt-4">
+                <Callout tone="success">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle size={18} className="shrink-0 text-emerald-600" />
+                    <span>{successMsg}</span>
+                  </div>
+                </Callout>
+              </div>
+            )}
+
+            {error && (
+              <div className="mt-4">
+                <Callout tone="danger">
+                  <div className="flex items-center gap-2">
+                    <WarningCircle size={18} className="shrink-0 text-red-600" />
+                    <span>{error}</span>
+                  </div>
+                </Callout>
+              </div>
+            )}
+
+            {/* Live Search Results */}
+            {search.trim().length >= 2 && (
+              <div className="mt-4 max-h-72 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+                {searching ? (
+                  <div className="p-4 text-center text-xs text-slate-500">Đang tìm kiếm...</div>
+                ) : customerData?.items?.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-500">Không tìm thấy hội viên khớp từ khóa.</div>
+                ) : (
+                  customerData?.items?.map((cust: any) => {
+                    const activePkg = cust.memberships?.[0];
+                    const isInGym = cust.attendances?.length > 0;
+
+                    return (
+                      <div
+                        key={cust.id}
+                        onClick={() => handleSelectCustomer(cust)}
+                        className={`flex items-center justify-between p-3.5 cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-zinc-800/60 transition ${
+                          selectedCustomer?.id === cust.id ? 'bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-600' : ''
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-slate-900 dark:text-white">{cust.full_name}</span>
+                            <span className="font-mono text-xs text-slate-400">({cust.customer_code})</span>
+                          </div>
+                          <p className="text-xs text-slate-500 font-mono mt-0.5">{cust.phone || 'Không có SĐT'}</p>
+                          {activePkg ? (
+                            <span className="inline-block mt-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded">
+                              {activePkg.package_name_snapshot} (HSD: {new Date(activePkg.end_date).toLocaleDateString('vi-VN')})
+                            </span>
+                          ) : (
+                            <span className="inline-block mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded">
+                              Chưa có / Hết hạn gói tập
+                            </span>
+                          )}
+                        </div>
+
+                        <div>
+                          {isInGym ? (
+                            <span className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                              Đang ở phòng
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCheckinClick(cust.id);
+                              }}
+                              disabled={checkinMutation.isPending}
+                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition shadow"
+                            >
+                              Check-in
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-xs font-mono font-semibold text-zinc-700 dark:text-zinc-300">
-                        {new Date(item.checkInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                      Phương thức: <span className="font-medium text-zinc-800 dark:text-zinc-200">{item.checkInMethod}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-stone-100 dark:border-zinc-800 flex justify-between items-center">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenUndo(item.id)}
-                      className="text-xs text-amber-700 hover:underline dark:text-amber-400 flex items-center gap-1 font-medium"
-                    >
-                      <ArrowCounterClockwise size={14} /> Hoàn tác
-                    </button>
-
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={checkoutMutation.isPending}
-                      onClick={() => checkoutMutation.mutate(item.id)}
-                      className="gap-1"
-                    >
-                      <SignOut size={14} /> Check-out
-                    </Button>
-                  </div>
-                </Card>
-              ))
-            ) : (
-              <div className="col-span-3 text-center py-12 text-sm text-zinc-400 border border-dashed border-stone-300 dark:border-zinc-800 rounded-2xl">
-                Hiện tại chưa có khách nào trong phòng tập.
+                    );
+                  })
+                )}
               </div>
             )}
           </div>
-        )}
+
+          {/* Selected Customer Preview Card */}
+          {selectedCustomer && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-emerald-900 dark:text-emerald-200 text-sm">Xác Nhận Check-in Cho Hội Viên</h3>
+                <button onClick={() => setSelectedCustomer(null)} className="text-slate-400 hover:text-slate-600">
+                  <XCircle size={18} />
+                </button>
+              </div>
+
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-white font-bold text-base">
+                  {selectedCustomer.full_name.charAt(0)}
+                </div>
+                <div>
+                  <p className="font-bold text-slate-900 dark:text-white text-base">{selectedCustomer.full_name}</p>
+                  <p className="text-xs text-slate-600 dark:text-zinc-300 font-mono">SĐT: {selectedCustomer.phone} | Mã: {selectedCustomer.customer_code}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => setSelectedCustomer(null)}>Hủy</Button>
+                <Button onClick={() => handleCheckinClick(selectedCustomer.id)} disabled={checkinMutation.isPending}>
+                  Xác Nhận Check-in Trực Tiếp
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Currently In Gym & 15-Minute Undo Panel */}
+        <div className="lg:col-span-6 flex flex-col gap-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                  <UserCheck size={20} className="text-emerald-600" /> Danh Sách Check-in Gần Đây
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  Hỗ trợ nút Undo Hủy lượt check-in thao tác nhầm trong vòng 15 phút
+                </p>
+              </div>
+              <span className="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                {inGymList.length} lượt
+              </span>
+            </div>
+
+            {inGymList.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-500 dark:text-zinc-400 border border-dashed border-slate-200 dark:border-zinc-800 rounded-xl">
+                Chưa có lượt check-in nào trong ca làm việc.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-1">
+                {inGymList.map((item: any) => {
+                  const checkInTime = new Date(item.checkInAt);
+                  const diffMinutes = Math.floor((Date.now() - checkInTime.getTime()) / (1000 * 60));
+                  const canUndo = diffMinutes <= 15;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 dark:border-zinc-800 dark:bg-zinc-800/40"
+                    >
+                      <div>
+                        <p className="font-bold text-sm text-slate-900 dark:text-white">{item.customerName}</p>
+                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                          <Clock size={13} />
+                          <span className="font-mono">{checkInTime.toLocaleTimeString('vi-VN')}</span>
+                          <span>•</span>
+                          <span className="font-mono">({diffMinutes} phút trước)</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {canUndo && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenUndoModal(item)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 transition"
+                            title="Hủy lượt check-in do thao tác nhầm (trong vòng 15 phút)"
+                          >
+                            <ArrowCounterClockwise size={14} /> Undo Check-in
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => checkoutMutation.mutate(item.id)}
+                          disabled={checkoutMutation.isPending}
+                          className="inline-flex items-center gap-1 rounded-lg bg-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-300 dark:bg-zinc-700 dark:text-zinc-200 transition"
+                        >
+                          <SignOut size={14} /> Check-out
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* UNDO CHECKIN MODAL */}
-      <Modal open={undoModalOpen} onClose={() => setUndoModalOpen(false)} title="Hoàn tác lượt Check-in">
-        <form onSubmit={handleUndoSubmit} className="flex flex-col gap-4">
-          <p className="text-sm text-zinc-600 dark:text-zinc-300">
-            Bạn đang yêu cầu hủy lượt Check-in này. Thao tác này sẽ ghi lại nhật ký Audit Log của chi nhánh.
-          </p>
+      {/* Undo Check-in Modal */}
+      {undoModalOpen && (
+        <Modal
+          open={undoModalOpen}
+          onClose={() => setUndoModalOpen(false)}
+          title="Hủy lượt Check-in do thao tác nhầm"
+        >
+          <div className="flex flex-col gap-4">
+            <Callout tone="warning">
+              <div className="flex items-center gap-2 text-xs">
+                <ShieldWarning size={18} className="shrink-0 text-amber-600" />
+                <span>
+                  Thao tác Undo không xóa dữ liệu mà cập nhật trạng thái CANCELLED và lưu vết nhân viên thực hiện.
+                </span>
+              </div>
+            </Callout>
 
-          <FormField label="Lý do hoàn tác *" htmlFor="undo-reason">
-            <textarea
-              id="undo-reason"
-              required
-              rows={3}
-              className={inputClass}
-              placeholder="Ví dụ: Staff quét nhầm mã QR, nhập sai thông tin..."
-              value={undoReason}
-              onChange={(e) => setUndoReason(e.target.value)}
-            />
-          </FormField>
+            <p className="text-xs text-slate-600 dark:text-zinc-300">
+              Hội viên: <strong className="text-slate-900 dark:text-white">{targetAttendance?.customerName}</strong>
+            </p>
 
-          <div className="flex justify-end gap-2 mt-2">
-            <Button type="button" variant="secondary" onClick={() => setUndoModalOpen(false)}>
-              Hủy
-            </Button>
-            <Button type="submit" disabled={undoMutation.isPending}>
-              Xác nhận hoàn tác
-            </Button>
+            <FormField label="Lý do hủy lượt check-in *" htmlFor="undo-reason">
+              <textarea
+                id="undo-reason"
+                rows={3}
+                required
+                value={undoReason}
+                onChange={(e) => setUndoReason(e.target.value)}
+                placeholder="Ví dụ: Quét nhầm mã hội viên, bấm nhầm nút..."
+                className="w-full rounded-xl border border-slate-300 p-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              />
+            </FormField>
+
+            <div className="flex justify-end gap-2 mt-2">
+              <Button variant="secondary" onClick={() => setUndoModalOpen(false)}>Hủy bỏ</Button>
+              <Button
+                onClick={() => undoMutation.mutate()}
+                disabled={!undoReason.trim() || undoMutation.isPending}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                Xác Nhận Hủy Lượt
+              </Button>
+            </div>
           </div>
-        </form>
-      </Modal>
+        </Modal>
+      )}
+
+      {/* QR scan popup — ảnh + tên + hành động vừa quét, tự tắt sau 5s, bấm vào xem chi tiết */}
+      {qrToast && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setQrDetailCustomer(qrToast.customer);
+            setQrToast(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              setQrDetailCustomer(qrToast.customer);
+              setQrToast(null);
+            }
+          }}
+          className="fixed right-4 top-20 z-[9998] w-80 cursor-pointer rounded-2xl border border-emerald-200 bg-white p-4 shadow-2xl shadow-emerald-950/10 transition hover:-translate-y-0.5 dark:border-emerald-900/50 dark:bg-zinc-900"
+        >
+          <div className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              {qrToast.customer.avatar_url ? (
+                <img
+                  src={qrToast.customer.avatar_url}
+                  alt={qrToast.customer.full_name}
+                  className="h-12 w-12 rounded-2xl object-cover"
+                />
+              ) : (
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-base font-bold text-white">
+                  {qrToast.customer.full_name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span
+                className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white text-white dark:border-zinc-900 ${
+                  qrToast.action === 'CHECKED_IN' ? 'bg-emerald-600' : 'bg-slate-500'
+                }`}
+              >
+                {qrToast.action === 'CHECKED_IN' ? <SignIn size={11} weight="bold" /> : <SignOut size={11} weight="bold" />}
+              </span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{qrToast.customer.full_name}</p>
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                {qrToast.action === 'CHECKED_IN' ? 'Vừa Check-in qua QR' : 'Vừa Check-out qua QR'}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">Nhấn để xem chi tiết hội viên</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full detail — mở từ popup quét QR */}
+      {qrDetailCustomer && (
+        <MemberDetailModal
+          isOpen={Boolean(qrDetailCustomer)}
+          onClose={() => setQrDetailCustomer(null)}
+          customer={qrDetailCustomer}
+          branchPackages={branchPackages}
+          isFaceIdEnabled={true}
+        />
+      )}
     </div>
   );
 }

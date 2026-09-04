@@ -32,8 +32,13 @@ async function bootstrap() {
       }
       const isLocalhost =
         origin.startsWith('http://localhost:') ||
-        origin.startsWith('http://127.0.0.1:');
+        origin.startsWith('http://127.0.0.1:') ||
+        /^https?:\/\/([a-zA-Z0-9-]+\.)*localhost(:[0-9]+)?$/i.test(origin) ||
+        /^https?:\/\/([a-zA-Z0-9-]+\.)*127\.0\.0\.1(:[0-9]+)?$/i.test(origin);
       const isFitflowDomain =
+        origin === 'https://fitfloww.store' ||
+        origin === 'http://fitfloww.store' ||
+        origin.endsWith('.fitfloww.store') ||
         origin === 'https://fitflow.io.vn' ||
         origin === 'http://fitflow.io.vn' ||
         origin.endsWith('.fitflow.io.vn') ||
@@ -47,7 +52,16 @@ async function bootstrap() {
     },
     credentials: true,
   });
-  app.setGlobalPrefix((process.env.API_PREFIX || '/api/v1').replace(/^\//, ''));
+
+  const apiPrefix = (process.env.API_PREFIX || '/api/v1').replace(/^\//, '');
+  app.use((req: any, _res: any, next: any) => {
+    if (req.url && req.url.startsWith('/api/tenants/resolve/')) {
+      req.url = req.url.replace('/api/tenants/resolve/', `/${apiPrefix}/tenants/resolve/`);
+    }
+    next();
+  });
+
+  app.setGlobalPrefix(apiPrefix);
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

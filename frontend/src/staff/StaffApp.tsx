@@ -7,6 +7,7 @@ import StaffCheckinPage from './pages/CheckinPage';
 import StaffPosPage from './pages/PosPage';
 import StaffGuestVisitsPage from './pages/GuestVisitsPage';
 import StaffMembersPage from './pages/MembersPage';
+import FaceCheckinKioskPage from './pages/FaceCheckinKioskPage';
 
 export default function StaffApp() {
   useBootstrapAuth();
@@ -17,6 +18,7 @@ export default function StaffApp() {
         <Route element={<StaffShell />}>
           <Route index element={<StaffDashboardPage />} />
           <Route path="checkin" element={<StaffCheckinPage />} />
+          <Route path="checkin-kiosk" element={<FaceCheckinKioskPage />} />
           <Route path="pos" element={<StaffPosPage />} />
           <Route path="guest-visits" element={<StaffGuestVisitsPage />} />
           <Route path="members" element={<StaffMembersPage />} />

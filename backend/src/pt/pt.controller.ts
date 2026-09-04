@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Query,
   Param,
@@ -19,11 +20,14 @@ import {
   RejectBookingDto,
   CompleteSessionDto,
   CreateWorkoutLogDto,
+  UpdateWorkoutLogDto,
   CreatePtPackagePlanDto,
   UpdatePtProfileDto,
   UpdateWorkingHoursDto,
   CreatePtBookingByPtDto,
   MarkNoShowDto,
+  CreateInBodyRecordDto,
+  CancelPtPackageDto,
 } from './dto/pt.dto';
 
 @Controller('pt')
@@ -89,6 +93,25 @@ export class PtController {
     return this.ptService.createWorkoutLog(user, dto);
   }
 
+  @Patch('workout-logs/:id')
+  updateWorkoutLog(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkoutLogDto,
+  ) {
+    return this.ptService.updateWorkoutLog(user, id, dto);
+  }
+
+  @Delete('workout-logs/:id')
+  deleteWorkoutLog(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.ptService.deleteWorkoutLog(user, id);
+  }
+
+  @Post('clients/inbody')
+  createInBodyRecord(@CurrentUser() user: any, @Body() dto: CreateInBodyRecordDto) {
+    return this.ptService.createInBodyRecord(user, dto);
+  }
+
   @Get('packages')
   getMyPtPackages(@CurrentUser() user: any) {
     return this.ptService.getMyPtPackages(user);
@@ -97,6 +120,15 @@ export class PtController {
   @Post('packages')
   createPtPackagePlan(@CurrentUser() user: any, @Body() dto: CreatePtPackagePlanDto) {
     return this.ptService.createPtPackagePlan(user, dto);
+  }
+
+  @Post('packages/:id/cancel')
+  cancelPtPackage(
+    @CurrentUser() user: any,
+    @Param('id') packageId: string,
+    @Body() dto?: CancelPtPackageDto,
+  ) {
+    return this.ptService.cancelPtPackage(user, packageId, dto);
   }
 
   @Get('availability')

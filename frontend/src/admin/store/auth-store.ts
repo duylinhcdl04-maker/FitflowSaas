@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export interface AdminUser {
   id: string;
@@ -17,12 +18,27 @@ interface AuthState {
   setHydrating: (value: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  accessToken: null,
-  user: null,
-  isHydrating: true,
-  setSession: (accessToken, user) => set({ accessToken, user }),
-  setAccessToken: (accessToken) => set({ accessToken }),
-  clearSession: () => set({ accessToken: null, user: null }),
-  setHydrating: (value) => set({ isHydrating: value }),
-}));
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      accessToken: null,
+      user: null,
+      isHydrating: true,
+      setSession: (accessToken, user) => set({ accessToken, user, isHydrating: false }),
+      setAccessToken: (accessToken) => set({ accessToken }),
+      clearSession: () => set({ accessToken: null, user: null, isHydrating: false }),
+      setHydrating: (value) => set({ isHydrating: value }),
+    }),
+    {
+      name: 'fitflow_admin_auth_session',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        user: state.user,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrating(false);
+      },
+    }
+  )
+);

@@ -7,13 +7,16 @@ import {
   Sun,
   List,
   Key,
+  Crown,
 } from '@phosphor-icons/react';
 import { useAuthStore } from '../../owner/store/auth-store';
 import { useThemeStore } from '../../store/theme-store';
 import { logout } from '../../owner/api/auth';
 import BrandBadge from '../../owner/components/BrandBadge';
 import NotificationBell from '../../owner/components/NotificationBell';
+import PortalSwitcher from '../../owner/components/PortalSwitcher';
 import MobileNavDrawer from './MobileNavDrawer';
+import BranchSwitcher from './BranchSwitcher';
 
 interface ManagerTopNavProps {
   onOpenQuickSearch: () => void;
@@ -21,6 +24,13 @@ interface ManagerTopNavProps {
   userName?: string;
   branchName?: string;
   brandName?: string;
+  branch?: {
+    id: string;
+    name: string;
+    code?: string;
+    address?: string | null;
+    phone?: string | null;
+  };
 }
 
 export default function ManagerTopNav({
@@ -29,6 +39,7 @@ export default function ManagerTopNav({
   userName = 'Branch Manager',
   branchName,
   brandName = 'FitFlow',
+  branch,
 }: ManagerTopNavProps) {
   const navigate = useNavigate();
   const clearSession = useAuthStore((s) => s.clearSession);
@@ -61,7 +72,7 @@ export default function ManagerTopNav({
       {/* Container KHÔNG CÓ overflow-hidden ở cấp cha để dropdown xổ xuống mượt mà 100% */}
       <div className="max-w-[1680px] w-full mx-auto h-full px-4 flex items-center justify-between gap-2 sm:gap-4">
         {/* Left Section: Mobile Drawer Toggle + Dynamic Registered Brand Name */}
-        <div className="flex items-center gap-3 shrink-0 overflow-hidden">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
             onClick={() => setIsMobileDrawerOpen(true)}
@@ -74,13 +85,18 @@ export default function ManagerTopNav({
           {/* Dynamic Brand Logo & Registered Brand Name */}
           <div className="flex items-center gap-2.5 shrink-0">
             <BrandBadge brandName={brandName} />
-            <span className="font-display font-bold text-base text-slate-900 dark:text-zinc-50 hidden sm:inline tracking-tight truncate max-w-[140px]">
+            <span className="font-display font-bold text-base text-slate-900 dark:text-zinc-50 hidden sm:inline tracking-tight truncate max-w-[120px]">
               {brandName || 'FitFlow'}
             </span>
           </div>
 
+          {/* Branch Identity & Switcher in Top Nav */}
+          <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-zinc-800 shrink-0">
+            <BranchSwitcher currentBranch={branch} variant="badge" />
+          </div>
+
           {/* Desktop Nav Items */}
-          <nav className="hidden xl:flex items-center gap-1 ml-3 overflow-hidden">
+          <nav className="hidden xl:flex items-center gap-1 ml-3">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -100,8 +116,24 @@ export default function ManagerTopNav({
           </nav>
         </div>
 
-        {/* Right Section: ⌘K Search, Notification, Theme Toggle, User Avatar Menu */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Right Section: Owner Link, Portal Switcher, ⌘K Search, Notification, Theme Toggle, User Avatar Menu */}
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          {/* Quick link back to Owner Portal if user is OWNER */}
+          {user?.roles?.includes('OWNER') && (
+            <button
+              type="button"
+              onClick={() => navigate('/owner')}
+              className="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 active:scale-95 px-2.5 py-1.5 text-xs font-bold text-white shadow-xs transition-all cursor-pointer shrink-0"
+              title="Quay lại Cổng Chủ phòng tập (Owner)"
+            >
+              <Crown size={14} weight="fill" />
+              <span>Về Quản lý chuỗi</span>
+            </button>
+          )}
+
+          {/* Portal Switcher Dropdown */}
+          <PortalSwitcher variant="compact" />
+
           {/* Quick Search Button */}
           <button
             type="button"

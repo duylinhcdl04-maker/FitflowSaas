@@ -14,6 +14,8 @@ import StaffApp from './staff/StaffApp.tsx'
 import PtApp from './pt/PtApp.tsx'
 import CustomerApp from './customer/CustomerApp.tsx'
 
+import { TenantProvider } from './tenant/tenant-context.tsx'
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 })
@@ -22,15 +24,17 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<App />} />
-          <Route path="/admin/*" element={<AdminApp />} />
-          <Route path="/owner/*" element={<OwnerApp />} />
-          <Route path="/manager/*" element={<ManagerApp />} />
-          <Route path="/staff/*" element={<StaffApp />} />
-          <Route path="/pt/*" element={<PtApp />} />
-          <Route path="/customer/*" element={<CustomerApp />} />
-        </Routes>
+        <TenantProvider>
+          <Routes>
+            <Route path="/" element={<App />} />
+            <Route path="/admin/*" element={<AdminApp />} />
+            <Route path="/owner/*" element={<OwnerApp />} />
+            <Route path="/manager/*" element={<ManagerApp />} />
+            <Route path="/staff/*" element={<StaffApp />} />
+            <Route path="/pt/*" element={<PtApp />} />
+            <Route path="/customer/*" element={<CustomerApp />} />
+          </Routes>
+        </TenantProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

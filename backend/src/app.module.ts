@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -15,6 +16,9 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { PaymentsGatewayModule } from './payments-gateway/payments-gateway.module';
 import { AutoCheckoutSchedulerModule } from './auto-checkout/auto-checkout-scheduler.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { TenantsModule } from './tenants/tenants.module';
+import { TenantMiddleware } from './common/middleware/tenant.middleware';
+import { TenantGuard } from './common/guards/tenant.guard';
 
 @Module({
   imports: [
@@ -32,8 +36,20 @@ import { NotificationsModule } from './notifications/notifications.module';
     PaymentsGatewayModule,
     AutoCheckoutSchedulerModule,
     NotificationsModule,
+    TenantsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(TenantMiddleware).forRoutes('*');
+  }
+}
+

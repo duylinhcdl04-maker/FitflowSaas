@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -8,8 +9,10 @@ import {
   Post,
   Patch,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ManagerService } from './manager.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -36,6 +39,8 @@ import {
   ToggleGuestHoldDto,
   RejectPtPackagePlanDto,
   SellPtPackageDto,
+  EnrollFaceProfileDto,
+  FaceCheckinDto,
 } from './dto/manager.dto';
 
 @Controller('manager')
@@ -44,12 +49,22 @@ import {
 export class ManagerController {
   constructor(private readonly managerService: ManagerService) {}
 
+  @Get('checkin-config')
+  getCheckinConfig(@CurrentUser() user: RequestUser) {
+    return this.managerService.getCheckinConfig(user);
+  }
+
   @Get('context')
   getContext(
     @CurrentUser() user: RequestUser,
     @Query('branchId') branchId?: string,
   ) {
     return this.managerService.getContext(user, branchId);
+  }
+
+  @Get('available-branches')
+  getAvailableBranches(@CurrentUser() user: RequestUser) {
+    return this.managerService.getAvailableBranches(user);
   }
 
   @Get('dashboard/overview')
@@ -115,6 +130,25 @@ export class ManagerController {
     @Body() dto: UndoCheckinDto,
   ) {
     return this.managerService.undoCheckin(user, dto);
+  }
+
+  // backend/docs/face-checkin.md §3 — kiosk tự nhận diện + so khớp trên trình duyệt, chỉ gửi
+  // customerId + điểm khớp lên đây.
+  @Get('checkin/face-descriptors')
+  getFaceDescriptors(
+    @CurrentUser() user: RequestUser,
+    @Query('branchId') branchId?: string,
+  ) {
+    return this.managerService.getFaceDescriptors(user, branchId);
+  }
+
+  @Post('checkin/face')
+  @HttpCode(HttpStatus.OK)
+  checkInOrOutViaFace(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: FaceCheckinDto,
+  ) {
+    return this.managerService.checkInOrOutViaFace(user, dto);
   }
 
   @Get('customers')
@@ -254,6 +288,50 @@ export class ManagerController {
     @Body() dto: UpdateCustomerStatusDto,
   ) {
     return this.managerService.toggleCustomerStatus(user, customerId, dto);
+  }
+
+  @Post('customers/:id/cancel-membership')
+  @Roles(ROLE.BRANCH_MANAGER, ROLE.OWNER)
+  @HttpCode(HttpStatus.OK)
+  cancelCustomerMembership(
+    @CurrentUser() user: RequestUser,
+    @Param('id') customerId: string,
+    @Body() dto: { membershipId?: string; reason?: string },
+  ) {
+    return this.managerService.cancelCustomerMembership(user, customerId, dto);
+  }
+
+  // backend/docs/face-checkin.md §2.2 — staff chụp ảnh tại quầy, descriptor tính sẵn trên
+  // trình duyệt bằng @vladmandic/face-api, backend chỉ lưu (không nhận/lưu ảnh gốc).
+  @Post('customers/:id/face-profile')
+  @Roles(ROLE.STAFF, ROLE.BRANCH_MANAGER, ROLE.OWNER)
+  @HttpCode(HttpStatus.OK)
+  enrollFaceProfile(
+    @CurrentUser() user: RequestUser,
+    @Param('id') customerId: string,
+    @Body() dto: EnrollFaceProfileDto,
+    @Req() req: Request,
+  ) {
+    return this.managerService.enrollFaceProfile(user, customerId, dto, req.ip);
+  }
+
+  @Get('customers/:id/face-profile')
+  @Roles(ROLE.STAFF, ROLE.BRANCH_MANAGER, ROLE.OWNER)
+  getFaceProfileStatus(
+    @CurrentUser() user: RequestUser,
+    @Param('id') customerId: string,
+  ) {
+    return this.managerService.getFaceProfileStatus(user, customerId);
+  }
+
+  @Delete('customers/:id/face-profile')
+  @Roles(ROLE.STAFF, ROLE.BRANCH_MANAGER, ROLE.OWNER)
+  @HttpCode(HttpStatus.OK)
+  revokeFaceProfile(
+    @CurrentUser() user: RequestUser,
+    @Param('id') customerId: string,
+  ) {
+    return this.managerService.revokeFaceProfile(user, customerId);
   }
 
   @Post('customers/:id/reset-password')

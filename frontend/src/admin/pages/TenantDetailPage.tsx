@@ -281,7 +281,7 @@ export default function TenantDetailPage() {
             </h1>
             <StatusBadge status={tenant.status} />
           </div>
-          <p className="font-mono mt-1 text-sm text-zinc-500">{tenant.code}.fitflow.io.vn</p>
+          <p className="font-mono mt-1 text-sm text-zinc-500">{tenant.code}.fitfloww.store</p>
           {tenant.status === 'SUSPENDED' && tenant.suspended_reason && (
             <p className="mt-2 text-sm text-red-600 dark:text-red-400">
               Lý do tạm ngưng: {tenant.suspended_reason}
@@ -851,7 +851,7 @@ export default function TenantDetailPage() {
               </h2>
               <p className="mt-1 text-xs text-zinc-400">
                 Mọi lần Super Admin truy cập dữ liệu Tenant này qua "Hỗ trợ (Impersonate)" — có thời hạn, có
-                lý do, có ghi nhận (BR-SA-003/004/005).
+                lý do, có ghi nhận bảo mật.
               </p>
             </div>
             {supportSessionsQuery.data && supportSessionsQuery.data.items.length > 0 ? (
@@ -963,7 +963,7 @@ export default function TenantDetailPage() {
       {impersonateOpen && (
         <Modal
           title="Mở phiên hỗ trợ"
-          description={'Có thời hạn, có lý do, có ghi nhận (BR-SA-003/004/005) — lưu lại trong tab "Phiên hỗ trợ".'}
+          description={'Có thời hạn, có lý do, có ghi nhận bảo mật — lưu lại trong tab "Phiên hỗ trợ".'}
           onClose={() => setImpersonateOpen(false)}
           footer={
             impersonateResult ? (

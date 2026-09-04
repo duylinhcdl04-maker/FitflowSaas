@@ -1,7 +1,23 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '../store/auth-store';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000/api/v1';
+const getBaseURL = () => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000/api/v1';
+  const hostname = window.location.hostname;
+  
+  if (hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
+    const parts = hostname.split('.');
+    if (parts.length > 1 && parts[parts.length - 1] === 'localhost') {
+      const subdomain = parts.slice(0, -1).join('.');
+      if (subdomain && subdomain !== 'www') {
+        return envUrl.replace('://localhost:', `://${subdomain}.localhost:`);
+      }
+    }
+  }
+  return envUrl;
+};
+
+const baseURL = getBaseURL();
 
 export const apiClient = axios.create({ baseURL, withCredentials: true });
 
@@ -10,6 +26,25 @@ apiClient.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  const hostname = window.location.hostname;
+  if (hostname.endsWith('.localhost')) {
+    const sub = hostname.replace(/\.localhost$/, '');
+    if (sub && sub !== 'www') {
+      config.headers['X-Tenant-Slug'] = sub.toLowerCase();
+    }
+  } else {
+    const parts = hostname.split('.');
+    if (parts.length > 2 && parts[0] !== 'www') {
+      config.headers['X-Tenant-Slug'] = parts[0].toLowerCase();
+    }
+  }
+
+  const activeBranchId = localStorage.getItem('fitflow_active_branch_id');
+  if (activeBranchId) {
+    config.headers['X-Branch-Id'] = activeBranchId;
+  }
+
   return config;
 });
 

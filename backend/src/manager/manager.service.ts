@@ -27,6 +27,8 @@ import {
   CreateGuestVisitDto,
   ToggleGuestHoldDto,
   SellPtPackageDto,
+  EnrollFaceProfileDto,
+  FaceCheckinDto,
 } from './dto/manager.dto';
 
 import { MailService } from '../mail/mail.service';
@@ -35,6 +37,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { buildVietQrUrl, generatePaymentRef, isVietQrMethod, mapPaymentMethod } from '../common/utils/vietqr';
 import { AutoCheckoutPolicyService } from '../auto-checkout/auto-checkout-policy.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { OwnerSettingsService } from '../owner/settings/owner-settings.service';
 
 function formatVnd(amount: number): string {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -50,7 +53,13 @@ export class ManagerService {
     private readonly autoCheckoutPolicy: AutoCheckoutPolicyService,
     private readonly notifications: NotificationsService,
     private readonly jwt: JwtService,
+    private readonly ownerSettings: OwnerSettingsService,
   ) {}
+
+  /** Read-only passthrough — Staff/Manager UI (Face ID tab, kiosk) cần biết Owner có bật check-in bằng khuôn mặt/QR không, nhưng không có quyền gọi thẳng /owner/settings/checkin-config (Roles OWNER only). */
+  getCheckinConfig(user: RequestUser) {
+    return this.ownerSettings.getCheckinConfig(user.tenantId!);
+  }
 
   /**
    * Resolves the payment_accounts row a VietQR sale should generate its QR against:
@@ -161,21 +170,41 @@ export class ManagerService {
     return branch?.name ?? 'Chi nhánh';
   }
 
+  private formatTimeStr(t: Date | string | null | undefined): string | null {
+    if (!t) return null;
+    if (typeof t === 'string') {
+      if (t.includes('T')) {
+        const d = new Date(t);
+        const hh = String(d.getUTCHours()).padStart(2, '0');
+        const mm = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+      }
+      return t.slice(0, 5);
+    }
+    if (t instanceof Date) {
+      const hh = String(t.getUTCHours()).padStart(2, '0');
+      const mm = String(t.getUTCMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+    return null;
+  }
+
   async resolveBranchId(user: RequestUser, requestedBranchId?: string): Promise<string> {
     if (!user.tenantId) throw new ForbiddenException('Tài khoản chưa thuộc về doanh nghiệp nào');
 
     const isOwner = user.roles?.includes(ROLE.OWNER);
+    const targetBranchId = requestedBranchId || user.selectedBranchId;
 
     // If requested a specific branch ID
-    if (requestedBranchId) {
+    if (targetBranchId) {
       if (isOwner) {
         const branch = await this.prisma.branch.findFirst({
-          where: { id: requestedBranchId, tenant_id: user.tenantId },
+          where: { id: targetBranchId, tenant_id: user.tenantId },
         });
         if (branch) return branch.id;
       } else {
         const ub = await this.prisma.user_branches.findFirst({
-          where: { user_id: user.id, branch_id: requestedBranchId, tenant_id: user.tenantId },
+          where: { user_id: user.id, branch_id: targetBranchId, tenant_id: user.tenantId },
         });
         if (ub) return ub.branch_id;
       }
@@ -192,6 +221,7 @@ export class ManagerService {
     if (isOwner) {
       const firstBranch = await this.prisma.branch.findFirst({
         where: { tenant_id: user.tenantId, status: 'ACTIVE' },
+        orderBy: { created_at: 'asc' },
       });
       if (firstBranch) return firstBranch.id;
       throw new NotFoundException('Doanh nghiệp chưa có chi nhánh nào khả dụng');
@@ -201,6 +231,46 @@ export class ManagerService {
     throw new ForbiddenException(
       'Tài khoản Quản lý của bạn chưa được phân công phụ trách chi nhánh nào. Vui lòng liên hệ Owner để được gán chi nhánh.',
     );
+  }
+
+  async getAvailableBranches(user: RequestUser) {
+    if (!user.tenantId) throw new ForbiddenException('Tài khoản chưa thuộc về doanh nghiệp nào');
+    const isOwner = user.roles?.includes(ROLE.OWNER);
+
+    if (isOwner) {
+      return this.prisma.branch.findMany({
+        where: { tenant_id: user.tenantId, status: 'ACTIVE' },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          address: true,
+          phone: true,
+        },
+        orderBy: { created_at: 'asc' },
+      });
+    }
+
+    const assigned = await this.prisma.user_branches.findMany({
+      where: { user_id: user.id, tenant_id: user.tenantId },
+      include: {
+        branches: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            address: true,
+            phone: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { is_primary: 'desc' },
+    });
+
+    return assigned
+      .filter((ub) => ub.branches && ub.branches.status === 'ACTIVE')
+      .map((ub) => ub.branches);
   }
 
   async getContext(user: RequestUser, requestedBranchId?: string) {
@@ -220,6 +290,16 @@ export class ManagerService {
         })
       : null;
 
+    const branchManager = await this.prisma.user.findFirst({
+      where: {
+        tenant_id: user.tenantId,
+        user_type: 'TENANT',
+        user_roles: { some: { roles: { code: ROLE.BRANCH_MANAGER } } },
+        user_branches: { some: { branch_id: branch.id } },
+      },
+      select: { full_name: true, phone: true, email: true },
+    });
+
     return {
       user: currentUser,
       tenant: tenant
@@ -235,8 +315,12 @@ export class ManagerService {
         code: branch.code,
         name: branch.name,
         address: branch.address,
-        openingTime: branch.opening_time,
-        closingTime: branch.closing_time,
+        phone: branch.phone,
+        email: branch.email,
+        openingTime: this.formatTimeStr(branch.opening_time),
+        closingTime: this.formatTimeStr(branch.closing_time),
+        managerName: branchManager?.full_name ?? null,
+        managerPhone: branchManager?.phone ?? null,
       },
     };
   }
@@ -372,11 +456,25 @@ export class ManagerService {
     };
 
     // 7. Action Center Alerts
+    const branchUserRows = await this.prisma.user_branches.findMany({
+      where: { tenant_id: tenantId, branch_id: branchId },
+      select: { user_id: true },
+    });
+    const branchUserIds = branchUserRows.map((ub) => ub.user_id);
+
     const pendingPaymentsCount = await this.prisma.payment.count({
       where: {
         tenant_id: tenantId,
         branch_id: branchId,
         status: 'PENDING',
+      },
+    });
+
+    const pendingPtPlansCount = await this.prisma.pt_package_plans.count({
+      where: {
+        tenant_id: tenantId,
+        status: 'PENDING_APPROVAL',
+        pt_user_id: { in: branchUserIds },
       },
     });
 
@@ -392,7 +490,10 @@ export class ManagerService {
       },
     });
 
-    const atRiskMembersCount = await this.prisma.customer.count({
+    // Notification.md - Inactivity Detection: Fetch active candidate customers at home branch
+    const now = new Date();
+    const nowMs = now.getTime();
+    const activeBranchCustomers = await this.prisma.customer.findMany({
       where: {
         tenant_id: tenantId,
         home_branch_id: branchId,
@@ -403,18 +504,70 @@ export class ManagerService {
             end_date: { gte: todayStart },
           },
         },
+      },
+      select: {
+        id: true,
+        full_name: true,
+        phone: true,
+        created_at: true,
+        memberships: {
+          where: { status: 'ACTIVE', end_date: { gte: todayStart } },
+          take: 1,
+          select: { start_date: true, end_date: true, package_name_snapshot: true },
+        },
         attendances: {
-          none: {
-            check_in_at: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
-          },
+          where: { status: { in: ['CHECKED_IN', 'CHECKED_OUT'] } },
+          orderBy: { check_in_at: 'desc' },
+          take: 1,
+          select: { check_in_at: true },
         },
       },
     });
 
+    const atRiskMembersList = activeBranchCustomers
+      .map((c) => {
+        const activeMembership = c.memberships[0];
+        const latestCheckIn = c.attendances[0]?.check_in_at;
+        // Notification.md Section 4:
+        // Case 1: Had valid check-in => lastActivityAt = latest check_in_at
+        // Case 2: Never checked in => lastActivityAt = Membership.start_date
+        const lastActivityAt = latestCheckIn
+          ? new Date(latestCheckIn)
+          : activeMembership?.start_date
+          ? new Date(activeMembership.start_date)
+          : new Date(c.created_at);
+
+        const diffTime = Math.max(0, nowMs - lastActivityAt.getTime());
+        const inactiveDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const isNeverAttended = !latestCheckIn;
+
+        return {
+          id: c.id,
+          customerName: c.full_name,
+          customerPhone: c.phone,
+          packageName: activeMembership?.package_name_snapshot ?? 'Gói tập',
+          startDate: activeMembership?.start_date ?? c.created_at,
+          endDate: activeMembership?.end_date,
+          lastVisitAt: latestCheckIn ? latestCheckIn : null,
+          lastActivityAt: lastActivityAt.toISOString(),
+          inactiveDays,
+          isNeverAttended,
+        };
+      })
+      .filter((item) => item.inactiveDays >= 15)
+      .sort((a, b) => b.inactiveDays - a.inactiveDays);
+
+    const atRiskMembersCount = atRiskMembersList.length;
+    const hasCriticalInactivity = atRiskMembersList.some((item) => item.inactiveDays >= 30);
+
     // Chi tiết cho từng mục hàng đợi — cho phép FE mở modal "xem chi tiết" thay vì chỉ
     // hiện con số. Giới hạn 20 dòng/mục để tránh trả về danh sách không giới hạn.
     const DETAIL_LIMIT = 20;
-    const [pendingPaymentsDetail, expiringMembershipsDetail, atRiskMembersDetail] = await Promise.all([
+    const [
+      pendingPaymentsDetail,
+      expiringMembershipsDetail,
+      pendingPtPlansDetail,
+    ] = await Promise.all([
       this.prisma.payment.findMany({
         where: { tenant_id: tenantId, branch_id: branchId, status: 'PENDING' },
         take: DETAIL_LIMIT,
@@ -432,35 +585,25 @@ export class ManagerService {
         orderBy: { end_date: 'asc' },
         include: { customers: { select: { full_name: true, phone: true } } },
       }),
-      this.prisma.customer.findMany({
+      this.prisma.pt_package_plans.findMany({
         where: {
           tenant_id: tenantId,
-          home_branch_id: branchId,
-          status: 'ACTIVE',
-          memberships: {
-            some: {
-              status: 'ACTIVE',
-              end_date: { gte: todayStart },
-            },
-          },
-          attendances: { none: { check_in_at: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } } },
+          status: 'PENDING_APPROVAL',
+          pt_user_id: { in: branchUserIds },
         },
         take: DETAIL_LIMIT,
-        orderBy: { created_at: 'asc' },
-        select: {
-          id: true,
-          full_name: true,
-          phone: true,
-          created_at: true,
-          memberships: {
-            where: { status: 'ACTIVE', end_date: { gte: todayStart } },
-            take: 1,
-            select: { start_date: true, package_name_snapshot: true },
+        orderBy: { created_at: 'desc' },
+        include: {
+          pt_profiles: {
+            include: {
+              users: { select: { full_name: true, phone: true } },
+            },
           },
-          attendances: { orderBy: { check_in_at: 'desc' }, take: 1, select: { check_in_at: true } },
         },
       }),
     ]);
+
+    const atRiskMembersDetail = atRiskMembersList.slice(0, DETAIL_LIMIT);
 
     const actionCenter = [
       {
@@ -475,6 +618,22 @@ export class ManagerService {
           customerPhone: p.customers.phone,
           amount: Number(p.total_amount),
           method: p.method,
+          createdAt: p.created_at,
+        })),
+      },
+      {
+        id: 'pending-pt-plans',
+        priority: 'CRITICAL',
+        title: `${pendingPtPlansCount} Đề xuất gói tập PT do HLV tạo chờ duyệt`,
+        description: 'Các gói tập PT do Huấn luyện viên khởi tạo cần Manager phê duyệt trước khi mở bán.',
+        count: pendingPtPlansCount,
+        items: pendingPtPlansDetail.map((p) => ({
+          id: p.id,
+          ptName: p.pt_profiles?.users?.full_name ?? 'Huấn luyện viên',
+          ptPhone: p.pt_profiles?.users?.phone ?? '—',
+          name: p.name,
+          sessionCount: p.session_count,
+          price: Number(p.price),
           createdAt: p.created_at,
         })),
       },
@@ -495,18 +654,11 @@ export class ManagerService {
       },
       {
         id: 'at-risk-members',
-        priority: 'INFORMATION',
-        title: `${atRiskMembersCount} Hội viên chưa đi tập trên 14 ngày`,
-        description: 'Cần hỗ trợ chăm sóc để hạn chế rời bỏ.',
+        priority: hasCriticalInactivity ? 'WARNING' : 'INFORMATION',
+        title: `${atRiskMembersCount} Hội viên không đi tập ≥ 15 ngày`,
+        description: 'Tự động tính từ lần check-in hợp lệ gần nhất (hoặc ngày kích hoạt thẻ).',
         count: atRiskMembersCount,
-        items: atRiskMembersDetail.map((c) => ({
-          id: c.id,
-          customerName: c.full_name,
-          customerPhone: c.phone,
-          packageName: c.memberships[0]?.package_name_snapshot,
-          startDate: c.memberships[0]?.start_date ?? c.created_at,
-          lastVisitAt: c.attendances[0]?.check_in_at ?? null,
-        })),
+        items: atRiskMembersDetail,
       },
     ];
 
@@ -645,14 +797,45 @@ export class ManagerService {
       this.prisma.membership.count({
         where: { tenant_id: tenantId, branch_id: branchId, status: 'EXPIRED', end_date: { gte: from, lte: to } },
       }),
-      // BR: real-time "hiện tại", không phụ thuộc date range — cùng công thức với getDashboardOverview.
-      this.prisma.customer.count({
+      // BR: real-time "hiện tại", không phụ thuộc date range — cùng công thức với getDashboardOverview (không check-in >= 15 ngày kể từ check-in gần nhất hoặc ngày thẻ).
+      this.prisma.customer.findMany({
         where: {
           tenant_id: tenantId,
           home_branch_id: branchId,
           status: 'ACTIVE',
-          attendances: { none: { check_in_at: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } } },
+          memberships: {
+            some: {
+              status: 'ACTIVE',
+              end_date: { gte: from },
+            },
+          },
         },
+        select: {
+          created_at: true,
+          memberships: {
+            where: { status: 'ACTIVE', end_date: { gte: from } },
+            take: 1,
+            select: { start_date: true },
+          },
+          attendances: {
+            where: { status: { in: ['CHECKED_IN', 'CHECKED_OUT'] } },
+            orderBy: { check_in_at: 'desc' },
+            take: 1,
+            select: { check_in_at: true },
+          },
+        },
+      }).then((customers) => {
+        const nowMs = new Date().getTime();
+        return customers.filter((c) => {
+          const latestCheckIn = c.attendances[0]?.check_in_at;
+          const lastActivityAt = latestCheckIn
+            ? new Date(latestCheckIn)
+            : c.memberships[0]?.start_date
+            ? new Date(c.memberships[0].start_date)
+            : new Date(c.created_at);
+          const diffDays = Math.floor(Math.max(0, nowMs - lastActivityAt.getTime()) / (1000 * 60 * 60 * 24));
+          return diffDays >= 15;
+        }).length;
       }),
       this.prisma.ptBooking.findMany({
         where: { tenant_id: tenantId, branch_id: branchId, scheduled_start: { gte: from, lte: to } },
@@ -775,8 +958,54 @@ export class ManagerService {
 
     const customer = await this.prisma.customer.findUnique({
       where: { id: dto.customerId },
+      include: {
+        memberships: {
+          orderBy: { created_at: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            branch_id: true,
+            branch_access_scope_snapshot: true,
+          },
+        },
+      },
     });
     if (!customer) throw new NotFoundException('Không tìm thấy thông tin hội viên');
+
+    const activeMembership = customer.memberships.find(
+      (m) => m.status === 'ACTIVE' || m.status === 'FROZEN',
+    );
+    if (!activeMembership) {
+      const activePtPackage = await this.prisma.customer_pt_packages.findFirst({
+        where: {
+          tenant_id: tenantId,
+          customer_id: dto.customerId,
+          status: { in: ['ACTIVE', 'SCHEDULED'] },
+        },
+      });
+      if (activePtPackage) {
+        throw new BadRequestException(
+          'Khách hàng hiện chỉ có gói PT, chưa đăng ký gói hội viên gym. Bắt buộc phải đăng ký gói hội viên gym mới được check-in.',
+        );
+      }
+      if (customer.memberships.length > 0) {
+        throw new BadRequestException(
+          'Gói hội viên gym của khách hàng đã hết hạn hoặc không còn hiệu lực. Vui lòng gia hạn gói hội viên để check-in.',
+        );
+      }
+      throw new BadRequestException(
+        'Khách hàng chưa đăng ký gói hội viên gym. Vui lòng đăng ký gói hội viên gym để check-in.',
+      );
+    }
+
+    if (
+      activeMembership.branch_access_scope_snapshot === 'HOME_BRANCH' &&
+      activeMembership.branch_id !== branchId
+    ) {
+      throw new ForbiddenException(
+        'ACCESS_DENIED: Gói tập của hội viên chỉ áp dụng tại chi nhánh đã đăng ký',
+      );
+    }
 
     return this.createCheckInRecord({
       tenantId,
@@ -784,7 +1013,7 @@ export class ManagerService {
       customerId: dto.customerId,
       method: 'MANUAL',
       checkInBy: user.id,
-      membershipId: dto.membershipId || null,
+      membershipId: activeMembership.id,
       note: dto.note,
     });
   }
@@ -798,10 +1027,11 @@ export class ManagerService {
     tenantId: string;
     branchId: string;
     customerId: string;
-    method: 'MANUAL' | 'QR';
+    method: 'MANUAL' | 'QR' | 'FACE';
     checkInBy?: string | null;
     membershipId?: string | null;
     note?: string;
+    faceMatchScore?: number;
   }) {
     const checkInAt = new Date();
     const autoCheckoutAt = await this.autoCheckoutPolicy.computeAutoCheckoutAt(
@@ -837,6 +1067,7 @@ export class ManagerService {
         auto_checkout_at: autoCheckoutAt,
         status: 'CHECKED_IN',
         note: params.note,
+        face_match_score: params.faceMatchScore ?? null,
       },
     });
 
@@ -846,7 +1077,7 @@ export class ManagerService {
       actorRole: ROLE.BRANCH_MANAGER,
       entityType: 'ATTENDANCE',
       entityId: attendance.id,
-      action: params.method === 'QR' ? 'QR_CHECKIN' : 'MANUAL_CHECKIN',
+      action: params.method === 'QR' ? 'QR_CHECKIN' : params.method === 'FACE' ? 'FACE_CHECKIN' : 'MANUAL_CHECKIN',
     });
 
     this.realtimeGateway.emitToBranch(params.tenantId, params.branchId, 'attendance:updated', { attendanceId: attendance.id });
@@ -882,7 +1113,6 @@ export class ManagerService {
       where: { id: claim.sub, tenant_id: tenantId },
       include: {
         memberships: {
-          where: { status: { in: ['SCHEDULED', 'ACTIVE', 'FROZEN'] } },
           select: {
             id: true,
             package_name_snapshot: true,
@@ -891,6 +1121,20 @@ export class ManagerService {
             end_date: true,
             branch_id: true,
             branch_access_scope_snapshot: true,
+          },
+          orderBy: { created_at: 'desc' },
+        },
+        customer_pt_packages: {
+          select: {
+            id: true,
+            plan_name_snapshot: true,
+            pt_name_snapshot: true,
+            total_sessions: true,
+            used_sessions: true,
+            remaining_sessions: true,
+            start_date: true,
+            expiry_date: true,
+            status: true,
           },
           orderBy: { created_at: 'desc' },
         },
@@ -919,6 +1163,7 @@ export class ManagerService {
       emergency_contact_phone: customer.emergency_contact_phone,
       face_consent_at: customer.face_consent_at,
       memberships: customer.memberships,
+      customer_pt_packages: customer.customer_pt_packages,
     };
 
     const existingCheckin = await this.prisma.attendances.findFirst({
@@ -955,7 +1200,26 @@ export class ManagerService {
     // BR-CUST-002: a HOME_BRANCH-scoped membership can only check in at its own branch.
     const membership = customer.memberships.find((m) => m.status === 'ACTIVE' || m.status === 'FROZEN');
     if (!membership) {
-      throw new BadRequestException('Hội viên chưa có gói tập đang hoạt động');
+      const activePtPackage = await this.prisma.customer_pt_packages.findFirst({
+        where: {
+          tenant_id: tenantId,
+          customer_id: customer.id,
+          status: { in: ['ACTIVE', 'SCHEDULED'] },
+        },
+      });
+      if (activePtPackage) {
+        throw new BadRequestException(
+          'Khách hàng hiện chỉ có gói PT, chưa đăng ký gói hội viên gym. Bắt buộc phải đăng ký gói hội viên gym mới được check-in.',
+        );
+      }
+      if (customer.memberships.length > 0) {
+        throw new BadRequestException(
+          'Gói hội viên gym của khách hàng đã hết hạn hoặc không còn hiệu lực. Vui lòng gia hạn gói hội viên để check-in.',
+        );
+      }
+      throw new BadRequestException(
+        'Khách hàng chưa đăng ký gói hội viên gym. Vui lòng đăng ký gói hội viên gym để check-in.',
+      );
     }
     if (membership.branch_access_scope_snapshot === 'HOME_BRANCH' && membership.branch_id !== branchId) {
       throw new ForbiddenException('ACCESS_DENIED: Gói tập của hội viên chỉ áp dụng tại chi nhánh đã đăng ký');
@@ -971,6 +1235,297 @@ export class ManagerService {
     });
 
     return { action: 'CHECKED_IN' as const, attendance, customer: customerDetail };
+  }
+
+  // ─────────────────────────────── Face check-in (backend/docs/face-checkin.md) ───────────
+
+  /**
+   * Staff chụp ảnh tại quầy (backend/docs/face-checkin.md §2.2). Descriptor (128 số/ảnh) đã
+   * được tính sẵn trên trình duyệt bằng @vladmandic/face-api — backend chỉ validate hình dạng
+   * dữ liệu rồi lưu, không xử lý ảnh. Enroll lại (khách đã có hồ sơ ACTIVE) sẽ thu hồi hồ sơ
+   * cũ và tạo hồ sơ mới, giữ nguyên `face_embeddings` cũ để audit (không xoá vật lý).
+   */
+  async enrollFaceProfile(user: RequestUser, customerId: string, dto: EnrollFaceProfileDto, ip?: string) {
+    const tenantId = user.tenantId!;
+
+    if (!dto.consentGiven) {
+      throw new BadRequestException('Cần được khách hàng đồng ý trước khi đăng ký dữ liệu khuôn mặt');
+    }
+    if (!Array.isArray(dto.descriptors) || dto.descriptors.length === 0) {
+      throw new BadRequestException('Chưa có dữ liệu khuôn mặt nào được chụp');
+    }
+    if (dto.descriptors.some((d) => !Array.isArray(d) || d.length !== 128)) {
+      throw new BadRequestException('Dữ liệu khuôn mặt không hợp lệ');
+    }
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, tenant_id: tenantId },
+    });
+    if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
+
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      // Thu hồi hồ sơ ACTIVE cũ (nếu có) trước khi tạo hồ sơ mới — cột customer_id chỉ
+      // được unique khi status='ACTIVE' (uq_face_profile_active).
+      await tx.face_profiles.updateMany({
+        where: { tenant_id: tenantId, customer_id: customerId, status: 'ACTIVE' },
+        data: { status: 'REVOKED', revoked_at: now },
+      });
+
+      const profile = await tx.face_profiles.create({
+        data: {
+          tenant_id: tenantId,
+          customer_id: customerId,
+          status: 'ACTIVE',
+          provider: '@vladmandic/face-api',
+          registered_by: user.id,
+          registered_at: now,
+        },
+      });
+
+      await tx.face_embeddings.createMany({
+        data: dto.descriptors.map((descriptor, i) => ({
+          face_profile_id: profile.id,
+          tenant_id: tenantId,
+          // Lưu descriptor toán học (128 số float), KHÔNG lưu ảnh gốc — giảm tối đa dữ liệu
+          // sinh trắc học nhạy cảm phải lưu trữ (Nghị định 13/2023/NĐ-CP).
+          embedding_raw: Buffer.from(Float32Array.from(descriptor).buffer),
+          model_version: 'face_recognition_model_v1',
+          quality_score: dto.qualityScores?.[i] ?? null,
+        })),
+      });
+
+      // Customer.face_consent_at cũng được set bởi luồng khách tự chụp ảnh đại diện qua app
+      // (POST /customer/me/face-consent, customer.service.ts#submitFaceConsent) — dùng chung
+      // 1 cột vì cùng ý nghĩa "khách đã đồng ý cung cấp dữ liệu khuôn mặt", chỉ khác kênh thu
+      // thập. Không ghi đè nếu đã có, để giữ đúng thời điểm đồng ý sớm nhất.
+      if (!customer.face_consent_at) {
+        await tx.customer.update({
+          where: { id: customerId },
+          data: { face_consent_at: now, face_consent_ip: ip ?? null },
+        });
+      }
+    });
+
+    await writeAuditLog(this.prisma, {
+      tenantId,
+      actorUserId: user.id,
+      actorRole: ROLE.BRANCH_MANAGER,
+      entityType: 'FACE_PROFILE',
+      entityId: customerId,
+      action: 'FACE_PROFILE_ENROLLED',
+      afterData: { descriptorsCount: dto.descriptors.length },
+    });
+
+    this.realtimeGateway.emitToBranch(tenantId, await this.resolveBranchId(user), 'face:updated', { customerId });
+
+    return { success: true };
+  }
+
+  /** Trạng thái hồ sơ khuôn mặt hiện tại của 1 khách — cho UI enroll (MemberDetailModal) biết có cần chụp lại hay không. */
+  async getFaceProfileStatus(user: RequestUser, customerId: string) {
+    const tenantId = user.tenantId!;
+    const profile = await this.prisma.face_profiles.findFirst({
+      where: { tenant_id: tenantId, customer_id: customerId, status: 'ACTIVE' },
+      select: { registered_at: true },
+    });
+    return { active: Boolean(profile), registeredAt: profile?.registered_at ?? null };
+  }
+
+  /** Thu hồi hồ sơ khuôn mặt — soft-revoke, giữ lịch sử embeddings để audit. */
+  async revokeFaceProfile(user: RequestUser, customerId: string) {
+    const tenantId = user.tenantId!;
+    const profile = await this.prisma.face_profiles.findFirst({
+      where: { tenant_id: tenantId, customer_id: customerId, status: 'ACTIVE' },
+    });
+    if (!profile) throw new NotFoundException('Khách hàng chưa đăng ký dữ liệu khuôn mặt');
+
+    await this.prisma.face_profiles.update({
+      where: { id: profile.id },
+      data: { status: 'REVOKED', revoked_at: new Date() },
+    });
+
+    await writeAuditLog(this.prisma, {
+      tenantId,
+      actorUserId: user.id,
+      actorRole: ROLE.BRANCH_MANAGER,
+      entityType: 'FACE_PROFILE',
+      entityId: customerId,
+      action: 'FACE_PROFILE_REVOKED',
+    });
+
+    this.realtimeGateway.emitToBranch(tenantId, await this.resolveBranchId(user), 'face:updated', { customerId });
+
+    return { success: true };
+  }
+
+  /**
+   * Danh sách descriptor cho kiosk tự tải về và so khớp ngay trên trình duyệt (matching hoàn
+   * toàn client-side — backend không bao giờ nhận ảnh/descriptor "lạ" để so, chỉ nhận kết quả
+   * cuối cùng qua checkInOrOutViaFace). Chỉ trả khách đang có membership hợp lệ tại chi nhánh,
+   * y hệt điều kiện `manualCheckin` — khách hết hạn gói sẽ không còn được kiosk nhận diện.
+   */
+  async getFaceDescriptors(user: RequestUser, requestedBranchId?: string) {
+    const tenantId = user.tenantId!;
+    const branchId = await this.resolveBranchId(user, requestedBranchId);
+
+    const profiles = await this.prisma.face_profiles.findMany({
+      where: {
+        tenant_id: tenantId,
+        status: 'ACTIVE',
+        customers: {
+          status: 'ACTIVE',
+          // Chỉ tải descriptor của khách hợp lệ TẠI CHI NHÁNH NÀY — giống điều kiện branch
+          // scope thật ở checkInOrOutViaFace/manualCheckin (HOME_BRANCH chỉ check-in được ở
+          // đúng chi nhánh đã đăng ký; các scope khác như ALL_BRANCHES thì ở đâu cũng được).
+          // Không lọc branch ở đây sẽ tải nhầm descriptor của khách chi nhánh khác về kiosk,
+          // vừa sai nguyên tắc thiết kế (chỉ tải dữ liệu sinh trắc học cần thiết), vừa tốn băng thông.
+          memberships: {
+            some: {
+              status: { in: ['ACTIVE', 'FROZEN'] },
+              OR: [{ branch_access_scope_snapshot: { not: 'HOME_BRANCH' } }, { branch_id: branchId }],
+            },
+          },
+        },
+      },
+      select: {
+        customer_id: true,
+        customers: { select: { full_name: true } },
+        face_embeddings: { select: { embedding_raw: true } },
+      },
+    });
+
+    return {
+      customers: profiles
+        .filter((p) => p.face_embeddings.length > 0)
+        .map((p) => ({
+          customerId: p.customer_id,
+          fullName: p.customers.full_name,
+          descriptors: p.face_embeddings
+            .filter((e) => e.embedding_raw)
+            .map((e) => {
+              // embedding_raw đến từ pg driver dưới dạng Node Buffer, có thể là view lệch
+              // offset trên 1 ArrayBuffer dùng chung (pooled) — phải dùng byteOffset/byteLength
+              // tường minh, không được đọc thẳng `.buffer` (dễ đọc nhầm sang vùng nhớ khác).
+              const buf = Buffer.from(e.embedding_raw!);
+              return Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4));
+            }),
+        })),
+      branchId,
+    };
+  }
+
+  /**
+   * Kiosk tự nhận diện + so khớp khuôn mặt ngay trên trình duyệt (backend/docs/face-checkin.md
+   * §3.3) rồi chỉ gửi customerId + điểm khớp lên đây — khác với QR (chữ ký JWT tự chứng minh
+   * danh tính khách), `customerId` ở đây do trình duyệt/kiosk tự claim nên KHÔNG được tin
+   * tưởng tuyệt đối: verify lại phải có face_profiles ACTIVE thật cho customer đó trước khi
+   * cho check-in, chặn 1 kiosk bị lỗi/giả mạo tự ý gửi customerId bất kỳ. Toggle giống QR: nếu
+   * khách đang CHECKED_IN thì đứng trước camera lần nữa nghĩa là muốn check-out.
+   */
+  async checkInOrOutViaFace(user: RequestUser, dto: FaceCheckinDto) {
+    const tenantId = user.tenantId!;
+    const branchId = await this.resolveBranchId(user);
+
+    const faceProfile = await this.prisma.face_profiles.findFirst({
+      where: { tenant_id: tenantId, customer_id: dto.customerId, status: 'ACTIVE' },
+    });
+    if (!faceProfile) {
+      await this.prisma.access_denied_logs.create({
+        data: {
+          tenant_id: tenantId,
+          branch_id: branchId,
+          customer_id: dto.customerId,
+          method: 'FACE',
+          reason_code: 'NO_FACE_PROFILE',
+          detail: { matchScore: dto.matchScore },
+        },
+      });
+      throw new BadRequestException('Không tìm thấy hồ sơ khuôn mặt hợp lệ cho khách hàng này');
+    }
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, tenant_id: tenantId },
+      include: {
+        memberships: {
+          orderBy: { created_at: 'desc' },
+          select: { id: true, status: true, branch_id: true, branch_access_scope_snapshot: true },
+        },
+      },
+    });
+    if (!customer) throw new NotFoundException('Không tìm thấy thông tin hội viên');
+
+    const existingCheckin = await this.prisma.attendances.findFirst({
+      where: { tenant_id: tenantId, customer_id: customer.id, status: 'CHECKED_IN' },
+    });
+
+    if (existingCheckin) {
+      const updated = await this.prisma.attendances.update({
+        where: { id: existingCheckin.id },
+        data: {
+          status: 'CHECKED_OUT',
+          check_out_at: new Date(),
+          check_out_method: 'FACE',
+          check_out_by: user.id,
+        },
+      });
+
+      await this.syncGuestVisitAfterCheckout(updated, 'COMPLETED');
+      await writeAuditLog(this.prisma, {
+        tenantId,
+        actorUserId: user.id,
+        actorRole: ROLE.BRANCH_MANAGER,
+        entityType: 'ATTENDANCE',
+        entityId: updated.id,
+        action: 'FACE_CHECKOUT',
+      });
+
+      this.realtimeGateway.emitToBranch(tenantId, updated.branch_id, 'attendance:updated', { attendanceId: updated.id });
+      this.realtimeGateway.emitToBranch(tenantId, updated.branch_id, 'dashboard:refresh', {});
+
+      return { action: 'CHECKED_OUT' as const, attendance: updated, customerName: customer.full_name };
+    }
+
+    const membership = customer.memberships.find((m) => m.status === 'ACTIVE' || m.status === 'FROZEN');
+    if (!membership) {
+      await this.prisma.access_denied_logs.create({
+        data: {
+          tenant_id: tenantId,
+          branch_id: branchId,
+          customer_id: customer.id,
+          method: 'FACE',
+          reason_code: 'MEMBERSHIP_EXPIRED',
+          detail: { matchScore: dto.matchScore },
+        },
+      });
+      throw new BadRequestException('Gói hội viên gym đã hết hạn hoặc chưa đăng ký. Vui lòng ra quầy lễ tân.');
+    }
+    if (membership.branch_access_scope_snapshot === 'HOME_BRANCH' && membership.branch_id !== branchId) {
+      await this.prisma.access_denied_logs.create({
+        data: {
+          tenant_id: tenantId,
+          branch_id: branchId,
+          customer_id: customer.id,
+          method: 'FACE',
+          reason_code: 'WRONG_BRANCH',
+          detail: { matchScore: dto.matchScore },
+        },
+      });
+      throw new ForbiddenException('ACCESS_DENIED: Gói tập của hội viên chỉ áp dụng tại chi nhánh đã đăng ký');
+    }
+
+    const attendance = await this.createCheckInRecord({
+      tenantId,
+      branchId,
+      customerId: customer.id,
+      method: 'FACE',
+      checkInBy: user.id,
+      membershipId: membership.id,
+      faceMatchScore: dto.matchScore,
+    });
+
+    return { action: 'CHECKED_IN' as const, attendance, customerName: customer.full_name };
   }
 
   async manualCheckout(user: RequestUser, attendanceId: string) {
@@ -1220,13 +1775,28 @@ export class ManagerService {
               end_date: true,
             },
           },
+          customer_pt_packages: {
+            select: {
+              id: true,
+              plan_name_snapshot: true,
+              pt_name_snapshot: true,
+              total_sessions: true,
+              used_sessions: true,
+              remaining_sessions: true,
+              start_date: true,
+              expiry_date: true,
+              status: true,
+            },
+            orderBy: { created_at: 'desc' },
+          },
           attendances: {
             where: {
-              status: 'CHECKED_IN',
+              status: { not: 'CANCELLED' },
             },
             select: {
               id: true,
               check_in_at: true,
+              status: true,
             },
           },
         },
@@ -1234,8 +1804,31 @@ export class ManagerService {
       this.prisma.customer.count({ where }),
     ]);
 
+    const mappedItems = items.map((c) => {
+      const activeCheckins = c.attendances.filter((a) => a.status === 'CHECKED_IN');
+      const uniqueDays = new Set(
+        c.attendances.map((a) => a.check_in_at.toISOString().slice(0, 10)),
+      ).size;
+
+      return {
+        id: c.id,
+        customer_code: c.customer_code,
+        full_name: c.full_name,
+        phone: c.phone,
+        email: c.email,
+        status: c.status,
+        avatar_url: c.avatar_url,
+        created_at: c.created_at,
+        qr_token: c.qr_token,
+        memberships: c.memberships,
+        customer_pt_packages: c.customer_pt_packages,
+        gym_attendance_days: uniqueDays,
+        attendances: activeCheckins,
+      };
+    });
+
     return {
-      items,
+      items: mappedItems,
       meta: {
         total,
         page: pageNum,
@@ -1466,18 +2059,45 @@ export class ManagerService {
   }
 
   async getBranchAuditLogs(user: RequestUser) {
+    const isOwner = user.roles?.includes(ROLE.OWNER) || user.roles?.includes('OWNER');
+
+    if (isOwner) {
+      // Owner view: ONLY show logs of Managers (BRANCH_MANAGER or MANAGER)
+      const rows = await this.prisma.auditLog.findMany({
+        where: {
+          tenant_id: user.tenantId!,
+          actor_role: { in: [ROLE.BRANCH_MANAGER, 'BRANCH_MANAGER', 'MANAGER'] },
+        },
+        take: 50,
+        orderBy: { occurred_at: 'desc' },
+      });
+
+      return rows.map((row) => ({ ...row, id: row.id.toString() }));
+    }
+
+    // Branch Manager view: ONLY show logs of users assigned to this branch,
+    // excluding OWNER or SUPER_ADMIN actions.
     const branchId = await this.resolveBranchId(user);
+
+    const branchUserAssignments = await this.prisma.user_branches.findMany({
+      where: { branch_id: branchId },
+      select: { user_id: true },
+    });
+
+    const branchUserIds = Array.from(
+      new Set([...branchUserAssignments.map((a) => a.user_id), user.id]),
+    );
 
     const rows = await this.prisma.auditLog.findMany({
       where: {
         tenant_id: user.tenantId!,
+        actor_user_id: { in: branchUserIds },
+        actor_role: { notIn: [ROLE.OWNER, 'OWNER', 'SUPER_ADMIN'] },
       },
       take: 50,
       orderBy: { occurred_at: 'desc' },
     });
 
-    // AuditLog.id is a BigInt (autoincrement) — stringify it, Express/JSON can't serialize
-    // BigInt (same fix already applied in super-admin/audit-logs/audit-logs.service.ts).
     return rows.map((row) => ({ ...row, id: row.id.toString() }));
   }
 
@@ -2141,6 +2761,48 @@ export class ManagerService {
     });
   }
 
+  async cancelCustomerMembership(
+    user: RequestUser,
+    customerId: string,
+    dto?: { membershipId?: string; reason?: string },
+  ) {
+    const tenantId = user.tenantId!;
+    const branchId = await this.resolveBranchId(user);
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { tenant_id: tenantId, id: customerId },
+    });
+    if (!customer) {
+      throw new NotFoundException('Không tìm thấy hội viên.');
+    }
+
+    const membership = await this.prisma.membership.findFirst({
+      where: {
+        tenant_id: tenantId,
+        customer_id: customerId,
+        ...(dto?.membershipId ? { id: dto.membershipId } : { status: { in: ['ACTIVE', 'FROZEN', 'SCHEDULED'] } }),
+      },
+    });
+
+    if (!membership) {
+      throw new NotFoundException('Hội viên không có gói tập nào đang có hiệu lực để gỡ.');
+    }
+
+    await this.prisma.membership.update({
+      where: { id: membership.id },
+      data: {
+        status: 'CANCELLED',
+      },
+    });
+
+    this.realtimeGateway.emitToBranch(tenantId, branchId, 'dashboard:refresh', {});
+
+    return {
+      success: true,
+      message: `Đã gỡ thành công gói tập ${membership.package_name_snapshot} của hội viên ${customer.full_name}.`,
+    };
+  }
+
   async toggleCustomerStatus(user: RequestUser, customerId: string, dto: any) {
     const tenantId = user.tenantId!;
 
@@ -2527,10 +3189,19 @@ export class ManagerService {
       throw new NotFoundException('Gói tập PT không tồn tại hoặc chưa được phê duyệt mở bán.');
     }
 
-    // 3. Find active membership if any
+    // 3. Verify active gym membership exists before assigning PT package
     const activeMembership = await this.prisma.membership.findFirst({
-      where: { tenant_id: tenantId, customer_id: dto.customerId, status: 'ACTIVE' },
+      where: {
+        tenant_id: tenantId,
+        customer_id: dto.customerId,
+        status: { in: ['ACTIVE', 'FROZEN'] },
+      },
     });
+    if (!activeMembership) {
+      throw new BadRequestException(
+        'Khách hàng cần phải đăng ký gói hội viên gym trước khi đăng ký gói tập PT.',
+      );
+    }
 
     if (isVietQrMethod(dto.paymentMethod)) {
       return this.createPendingQrPayment({

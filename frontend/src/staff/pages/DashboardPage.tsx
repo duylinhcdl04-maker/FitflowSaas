@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import {
   Users,
   UserCheck,
@@ -15,23 +15,27 @@ import {
   getManagerDashboardOverview,
   getCurrentlyInGym,
   manualCheckout,
+  formatOperatingTime,
+  type ManagerContext,
 } from '../../manager/api/manager';
 import { useRealtimeInvalidate } from '../../lib/useRealtimeInvalidate';
 
 export default function StaffDashboardPage() {
   const queryClient = useQueryClient();
+  const outletCtx = useOutletContext<{ context?: ManagerContext }>();
+  const branch = outletCtx?.context?.branch;
 
   // Realtime push (attendance/guestvisit/payment/dashboard events) is the primary update
   // path now; these intervals are just a slow safety net if the socket connection drops.
   const { data: overview, isLoading: overviewLoading } = useQuery({
-    queryKey: ['staff-dashboard-overview'],
-    queryFn: () => getManagerDashboardOverview(),
+    queryKey: ['staff-dashboard-overview', branch?.id],
+    queryFn: () => getManagerDashboardOverview(branch?.id),
     refetchInterval: 60000,
   });
 
   const { data: inGymMembers = [], isLoading: inGymLoading } = useQuery({
-    queryKey: ['staff-currently-in-gym'],
-    queryFn: () => getCurrentlyInGym(),
+    queryKey: ['staff-currently-in-gym', branch?.id],
+    queryFn: () => getCurrentlyInGym(branch?.id),
     refetchInterval: 60000,
   });
 
@@ -90,15 +94,41 @@ export default function StaffDashboardPage() {
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 p-6 text-white shadow-lg">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-100">
-            <Sparkle size={16} /> Bảng Điều Khiển Ca Trực Lễ Tân
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-100">
+            <span className="flex items-center gap-1 bg-white/20 backdrop-blur-xs px-2.5 py-0.5 rounded-lg text-[11px] font-bold text-white">
+              <Sparkle size={14} /> Ca Trực Lễ Tân & Thu Ngân
+            </span>
+            {branch?.name && (
+              <span className="bg-emerald-950/40 border border-emerald-300/30 px-2.5 py-0.5 rounded-lg text-[11px] font-bold text-emerald-200">
+                🏪 {branch.name}
+              </span>
+            )}
           </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-white mt-1">
-            Chào ca làm việc! Tiếp đón & Phục vụ khách hàng
+          <h1 className="font-display text-2xl font-bold tracking-tight text-white mt-2">
+            {branch?.name ? `Tiếp đón tại chi nhánh ${branch.name}` : 'Chào ca làm việc! Tiếp đón & Phục vụ khách hàng'}
           </h1>
-          <p className="text-xs text-emerald-100/90 mt-1 max-w-xl">
-            Theo dõi danh sách khách đang tập luyện, thao tác Check-in/Check-out nhanh và xử lý thu ngân trực tiếp tại quầy.
-          </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-emerald-100/90 mt-1.5">
+            {branch?.address && (
+              <span className="flex items-center gap-1">
+                📍 {branch.address}
+              </span>
+            )}
+            {branch?.phone && (
+              <span className="flex items-center gap-1">
+                📞 Hotline: <span className="font-semibold text-white">{branch.phone}</span>
+              </span>
+            )}
+            {formatOperatingTime(branch?.openingTime, branch?.closingTime) && (
+              <span className="flex items-center gap-1">
+                ⏰ Giờ mở cửa: <span className="font-semibold text-white">{formatOperatingTime(branch?.openingTime, branch?.closingTime)}</span>
+              </span>
+            )}
+            {branch?.managerName && (
+              <span className="flex items-center gap-1">
+                👤 Quản lý cơ sở: <span className="font-semibold text-white">{branch.managerName}</span>
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Quick Action Shortcuts */}

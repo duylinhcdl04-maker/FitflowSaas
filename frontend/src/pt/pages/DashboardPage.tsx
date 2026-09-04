@@ -315,53 +315,71 @@ export default function PtDashboardPage() {
       </div>
 
       {/* Confirmation Modal for Complete Session */}
-      {completeModalBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-            <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <CheckCircle className="h-6 w-6 text-emerald-600" /> Xác Nhận Hoàn Thành Buổi Tập
-            </h3>
-            <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400">
-              Xác nhận bạn đã kết thúc ca dạy với học viên <strong className="text-slate-900 dark:text-white">{completeModalBooking.customers.full_name}</strong>.
-            </p>
+      {completeModalBooking && (() => {
+        const earlyWindowMs = 30 * 60 * 1000;
+        const isTooEarly = new Date().getTime() < new Date(completeModalBooking.scheduled_start).getTime() - earlyWindowMs;
 
-            <div className="mt-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-900/50">
-              ⚠️ <strong>Quy tắc BR-PT-002:</strong> Thao tác này sẽ chính thức trừ 1 buổi tập khỏi gói PT của học viên và lưu nhật ký ca dạy.
-            </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <CheckCircle className="h-6 w-6 text-emerald-600" /> Xác Nhận Hoàn Thành Buổi Tập
+              </h3>
+              <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400">
+                Xác nhận bạn đã kết thúc ca dạy với học viên <strong className="text-slate-900 dark:text-white">{completeModalBooking.customers.full_name}</strong>.
+              </p>
 
-            <div className="mt-4 space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-                Ghi chú nội dung buổi dạy (không bắt buộc):
-              </label>
-              <textarea
-                value={sessionNote}
-                onChange={(e) => setSessionNote(e.target.value)}
-                placeholder="Ví dụ: Tập mông đùi, squat 60kg, squat tốt..."
-                rows={3}
-                className="w-full rounded-xl border border-slate-300 p-2.5 text-xs text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
+              {isTooEarly ? (
+                <div className="mt-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 p-3.5 text-xs text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 flex items-start gap-2.5">
+                  <WarningCircle size={20} className="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-900 dark:text-amber-200">Chưa đến thời gian diễn ra ca tập!</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/90">
+                      Ca tập này được lên lịch vào lúc <strong>{new Date(completeModalBooking.scheduled_start).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}</strong>. Bạn chỉ có thể bấm xác nhận hoàn thành trong vòng 30 phút trước giờ tập.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 p-3 text-xs text-emerald-900 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-900/50">
+                  💡 <strong>Lưu ý:</strong> Thao tác này sẽ chính thức trừ 1 buổi tập khỏi gói PT của học viên và lưu nhật ký ca dạy.
+                </div>
+              )}
 
-            <div className="mt-6 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setCompleteModalBooking(null)}
-                className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 dark:border-zinc-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                disabled={completeMutation.isPending}
-                onClick={() => completeMutation.mutate()}
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {completeMutation.isPending ? 'Đang ghi nhận...' : 'Xác Nhận & Trừ Buổi'}
-              </button>
+              <div className="mt-4 space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                  Ghi chú nội dung buổi dạy (không bắt buộc):
+                </label>
+                <textarea
+                  value={sessionNote}
+                  onChange={(e) => setSessionNote(e.target.value)}
+                  placeholder="Ví dụ: Tập mông đùi, squat 60kg, squat tốt..."
+                  rows={3}
+                  disabled={isTooEarly}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-100 dark:disabled:bg-zinc-800/50"
+                />
+              </div>
+
+              <div className="mt-6 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCompleteModalBooking(null)}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 dark:border-zinc-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={completeMutation.isPending || isTooEarly}
+                  onClick={() => completeMutation.mutate()}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {completeMutation.isPending ? 'Đang ghi nhận...' : 'Xác Nhận & Trừ Buổi'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

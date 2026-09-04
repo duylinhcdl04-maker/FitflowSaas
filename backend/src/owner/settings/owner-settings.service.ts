@@ -127,7 +127,13 @@ export class OwnerSettingsService {
         'QR_CHECKIN',
         'Check-in bằng QR',
       );
-    if (dto.face)
+    // TODO(face-checkin Phase 0 tạm thời): platform_features/saas_plan_features/addons
+    // đang có 0 dòng trong DB (toàn bộ hệ thống entitlement chưa được seed, không riêng
+    // FACE_RECOGNITION — xem backend/docs/face-checkin.md §6) nên assertFeatureEnabled sẽ
+    // luôn throw. FACE_CHECKIN_ENABLED cho phép bật tính năng để dev/demo nội bộ trước khi
+    // seed entitlement "đúng chuẩn" (Hướng A trong tài liệu). Mặc định env không set =>
+    // hành vi giữ nguyên y hệt trước đây (luôn kiểm tra entitlement thật).
+    if (dto.face && process.env.FACE_CHECKIN_ENABLED !== 'true')
       await this.assertFeatureEnabled(
         tenantId,
         'FACE_RECOGNITION',

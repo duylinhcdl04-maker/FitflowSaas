@@ -8,9 +8,33 @@ export interface ManagerContext {
     code: string;
     name: string;
     address: string;
+    phone?: string | null;
+    email?: string | null;
     openingTime: string;
     closingTime: string;
+    managerName?: string | null;
+    managerPhone?: string | null;
   };
+}
+
+export function formatOperatingTime(opening?: string | null, closing?: string | null): string | null {
+  if (!opening || !closing) return null;
+  const clean = (val: string) => {
+    if (!val) return '';
+    if (val.includes('T')) {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) {
+        const hh = String(d.getUTCHours()).padStart(2, '0');
+        const mm = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+      }
+    }
+    return val.slice(0, 5);
+  };
+  const op = clean(opening);
+  const cl = clean(closing);
+  if (!op || !cl) return null;
+  return `${op} - ${cl}`;
 }
 
 export interface ManagerDashboardOverview {
@@ -28,15 +52,15 @@ export interface ManagerDashboardOverview {
     todayPtSessions: { total: number; completed: number; upcoming: number; cancelled: number };
   };
   actionCenter: Array<{
-    id: 'pending-payments' | 'expiring-memberships' | 'at-risk-members';
+    id: 'pending-payments' | 'expiring-memberships' | 'at-risk-members' | 'pending-pt-plans';
     priority: 'CRITICAL' | 'WARNING' | 'INFORMATION';
     title: string;
     description: string;
     count: number;
     items: Array<{
       id: string;
-      customerName: string;
-      customerPhone: string | null;
+      customerName?: string;
+      customerPhone?: string | null;
       // pending-payments
       amount?: number;
       method?: string;
@@ -47,6 +71,15 @@ export interface ManagerDashboardOverview {
       endDate?: string;
       // at-risk-members
       lastVisitAt?: string | null;
+      lastActivityAt?: string | null;
+      inactiveDays?: number;
+      isNeverAttended?: boolean;
+      // pending-pt-plans
+      ptName?: string;
+      ptPhone?: string | null;
+      name?: string;
+      sessionCount?: number;
+      price?: number;
     }>;
   }>;
   hourlyCheckins: Array<{ hour: string; count: number }>;
@@ -69,10 +102,29 @@ export interface CurrentlyInGymItem {
   autoCheckoutAt: string;
 }
 
+/** Read-only: Staff/Manager không gọi được /owner/settings/checkin-config (Roles OWNER only). */
+export function getManagerCheckinConfig() {
+  return apiClient
+    .get<{ qr: boolean; manual: boolean; face: boolean }>('/manager/checkin-config')
+    .then((res) => res.data);
+}
+
 export function getManagerContext(branchId?: string) {
   return apiClient
     .get<ManagerContext>('/manager/context', { params: { branchId } })
     .then((res) => res.data);
+}
+
+export interface AvailableBranch {
+  id: string;
+  name: string;
+  code: string;
+  address?: string | null;
+  phone?: string | null;
+}
+
+export function getAvailableBranches() {
+  return apiClient.get<AvailableBranch[]>('/manager/available-branches').then((res) => res.data);
 }
 
 export function getManagerDashboardOverview(branchId?: string) {
@@ -180,6 +232,56 @@ export interface QrScanResult {
 // check-in/check-out for whoever the token belongs to. See customer.service.ts#getQrToken.
 export function qrScanCheckin(token: string) {
   return apiClient.post<QrScanResult>('/manager/checkin/qr-scan', { token }).then((res) => res.data);
+}
+
+// ─────────────────────────────── Face check-in (backend/docs/face-checkin.md) ───────────
+
+/** Staff enroll: descriptor (128 số/ảnh) đã được @vladmandic/face-api tính sẵn trên trình duyệt. */
+export function enrollFaceProfile(customerId: string, descriptors: number[][], qualityScores?: number[]) {
+  return apiClient
+    .post(`/manager/customers/${customerId}/face-profile`, {
+      consentGiven: true,
+      descriptors,
+      qualityScores,
+    })
+    .then((res) => res.data);
+}
+
+export function getFaceProfileStatus(customerId: string) {
+  return apiClient
+    .get<{ active: boolean; registeredAt: string | null }>(`/manager/customers/${customerId}/face-profile`)
+    .then((res) => res.data);
+}
+
+export function revokeFaceProfile(customerId: string) {
+  return apiClient.delete(`/manager/customers/${customerId}/face-profile`).then((res) => res.data);
+}
+
+export interface FaceDescriptorCustomer {
+  customerId: string;
+  fullName: string;
+  descriptors: number[][];
+}
+
+/** Kiosk tải 1 lần (+ refetch khi có socket event `face:updated`) rồi tự so khớp trên trình duyệt. */
+export function getFaceDescriptors(branchId?: string) {
+  return apiClient
+    .get<{ customers: FaceDescriptorCustomer[]; branchId: string }>('/manager/checkin/face-descriptors', {
+      params: { branchId },
+    })
+    .then((res) => res.data);
+}
+
+export interface FaceCheckinResult {
+  action: 'CHECKED_IN' | 'CHECKED_OUT';
+  customerName: string;
+}
+
+/** Kiosk chỉ gửi kết quả nhận diện cuối cùng lên đây (customerId + điểm khớp), không gửi ảnh/descriptor lạ. */
+export function faceCheckin(customerId: string, matchScore: number, deviceId?: string) {
+  return apiClient
+    .post<FaceCheckinResult>('/manager/checkin/face', { customerId, matchScore, deviceId })
+    .then((res) => res.data);
 }
 
 export function getManagerCustomers(
@@ -337,6 +439,10 @@ export function getPaymentStatus(paymentId: string) {
 
 export function cancelPendingPayment(paymentId: string) {
   return apiClient.post(`/manager/payments/${paymentId}/cancel`).then((res) => res.data);
+}
+
+export function cancelCustomerMembership(customerId: string, membershipId?: string, reason?: string) {
+  return apiClient.post<{ success: boolean; message: string }>(`/manager/customers/${customerId}/cancel-membership`, { membershipId, reason }).then((res) => res.data);
 }
 
 export function toggleCustomerStatus(customerId: string, status: 'ACTIVE' | 'INACTIVE') {

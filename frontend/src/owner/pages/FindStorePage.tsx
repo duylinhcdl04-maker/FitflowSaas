@@ -1,37 +1,31 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { lookupTenant } from '../api/auth';
+import { resolveTenant } from '../api/auth';
 import { apiErrorMessage } from '../api/client';
+import { useTenant, getRootDomain } from '../../tenant/tenant-context';
 import AuthLayout from '../components/AuthLayout';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import { inputClass } from '../components/FormField';
 
-// Bước 1 của đăng nhập — nhập tên cửa hàng trước, giống mô hình
-// "cửahàng.kiotviet.vn" của KiotViet. Chưa có subdomain thật nên mô phỏng
-// bằng route nội bộ `/owner/login/:slug` (xem UI_Owner.md).
+// Màn hình Tenant Discovery (FLOW 1): http://localhost:5173/owner/login
+// Người dùng nhập tên phòng tập, hệ thống tra cứu và chuyển hướng sang subdomain của tenant
 export default function FindStorePage() {
-  const navigate = useNavigate();
+  const { redirectToTenant } = useTenant();
   const [slug, setSlug] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () => lookupTenant(slug.trim().toLowerCase()),
+    mutationFn: () => resolveTenant(slug.trim().toLowerCase()),
     onSuccess: (tenant) => {
-      const code = tenant.code;
-      const hostname = window.location.hostname;
-      const protocol = window.location.protocol;
-      const port = window.location.port ? `:${window.location.port}` : '';
-
-      if (hostname.includes('fitflow.io.vn')) {
-        window.location.href = `${protocol}//${code}.fitflow.io.vn/owner/login/${code}`;
-      } else if (hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
-        window.location.href = `${protocol}//${code}.localhost${port}/owner/login/${code}`;
-      } else {
-        navigate(`/owner/login/${code}`);
-      }
+      redirectToTenant(tenant.slug, '/owner/login', {
+        id: tenant.id,
+        slug: tenant.slug,
+        name: tenant.name,
+        status: tenant.status,
+      });
     },
     onError: (err) => setError(apiErrorMessage(err, 'Không tìm thấy cửa hàng với địa chỉ này')),
   });
@@ -61,7 +55,7 @@ export default function FindStorePage() {
               onChange={(e) => setSlug(e.target.value)}
             />
             <span className="flex shrink-0 items-center bg-stone-100 px-3 text-sm text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-              .fitflow.io.vn
+              .{window.location.hostname.endsWith('.localhost') ? 'localhost' : (getRootDomain(window.location.hostname) || 'fitfloww.store')}
             </span>
           </div>
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

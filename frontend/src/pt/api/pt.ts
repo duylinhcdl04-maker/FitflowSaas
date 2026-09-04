@@ -147,6 +147,36 @@ export async function createPtWorkoutLog(payload: {
   return data;
 }
 
+export async function updatePtWorkoutLog(
+  logId: string,
+  payload: {
+    workoutContent: string;
+    mainExercises?: string;
+    progressAssessment?: string;
+    notes?: string;
+  },
+) {
+  const { data } = await apiClient.patch(`/pt/workout-logs/${logId}`, payload);
+  return data;
+}
+
+export async function deletePtWorkoutLog(logId: string) {
+  const { data } = await apiClient.delete(`/pt/workout-logs/${logId}`);
+  return data;
+}
+
+export async function createInBodyRecord(payload: {
+  customerId: string;
+  weightKg: number;
+  bodyFatPercent?: number;
+  muscleMassKg?: number;
+  notes?: string;
+  measuredAt?: string;
+}) {
+  const { data } = await apiClient.post('/pt/clients/inbody', payload);
+  return data;
+}
+
 export async function getPtPackages(): Promise<PtPackagePlan[]> {
   const { data } = await apiClient.get('/pt/packages');
   return data;
@@ -176,5 +206,10 @@ export async function updatePtWorkingHours(hours: { weekday: number; startTime: 
 
 export async function getPtProfile() {
   const { data } = await apiClient.get('/pt/profile');
+  return data;
+}
+
+export async function cancelPtPackage(packageId: string, reason?: string) {
+  const { data } = await apiClient.post(`/pt/packages/${packageId}/cancel`, { reason });
   return data;
 }

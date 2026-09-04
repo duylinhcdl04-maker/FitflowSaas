@@ -19,9 +19,21 @@ import type { JwtPayload } from '../common/types/jwt-payload';
   cors: {
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return callback(null, true);
-      const isLocalhost = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
+      const isLocalhost =
+        origin.startsWith('http://localhost:') ||
+        origin.startsWith('http://127.0.0.1:') ||
+        /^https?:\/\/([a-zA-Z0-9-]+\.)*localhost(:[0-9]+)?$/i.test(origin) ||
+        /^https?:\/\/([a-zA-Z0-9-]+\.)*127\.0\.0\.1(:[0-9]+)?$/i.test(origin);
+      const isFitflowDomain =
+        origin === 'https://fitfloww.store' ||
+        origin === 'http://fitfloww.store' ||
+        origin.endsWith('.fitfloww.store') ||
+        origin === 'https://fitflow.io.vn' ||
+        origin === 'http://fitflow.io.vn' ||
+        origin.endsWith('.fitflow.io.vn') ||
+        origin.endsWith('.vercel.app');
       const allowedOrigins = [process.env.FRONTEND_URL].filter(Boolean) as string[];
-      if (isLocalhost || allowedOrigins.includes(origin)) return callback(null, true);
+      if (isLocalhost || isFitflowDomain || allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error('Blocked by CORS'));
     },
     credentials: true,

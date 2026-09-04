@@ -25,11 +25,31 @@ export function logout() {
   return apiClient.post('/auth/logout');
 }
 
-// Bước 1 của đăng nhập kiểu KiotViet ("tên cửa hàng" → .fitflow.vn) — mô
-// phỏng bằng route nội bộ vì chưa có subdomain thật. Chỉ để định
-// tuyến/hiển thị, không phải cổng xác thực.
+export interface ResolveTenantResponse {
+  success: boolean;
+  data: {
+    id: string;
+    slug: string;
+    name: string;
+    status: string;
+  };
+}
+
+// API Tenant Resolution mới: GET /api/v1/tenants/resolve/:slug
+export function resolveTenant(slug: string) {
+  return apiClient
+    .get<ResolveTenantResponse>(`/tenants/resolve/${slug.trim().toLowerCase()}`)
+    .then((res) => res.data.data);
+}
+
+// Backward-compatible wrapper
 export function lookupTenant(slug: string) {
-  return apiClient.get<{ code: string; name: string }>(`/owner/auth/tenants/${slug}`).then((res) => res.data);
+  return resolveTenant(slug).then((data) => ({
+    code: data.slug,
+    name: data.name,
+    id: data.id,
+    status: data.status,
+  }));
 }
 
 // OW-00 + OW-02 gộp một API: `users` có CHECK constraint ở DB buộc

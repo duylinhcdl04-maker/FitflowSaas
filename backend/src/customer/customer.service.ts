@@ -106,12 +106,18 @@ export class CustomerService {
 
   async getProfile(user: RequestUser) {
     const customer = await this.resolveCustomer(user);
-    const branch = customer.home_branch_id
-      ? await this.prisma.branch.findUnique({
-          where: { id: customer.home_branch_id },
-          select: { id: true, name: true },
-        })
-      : null;
+    const [branch, tenant] = await Promise.all([
+      customer.home_branch_id
+        ? this.prisma.branch.findUnique({
+            where: { id: customer.home_branch_id },
+            select: { id: true, name: true },
+          })
+        : null,
+      this.prisma.tenant.findUnique({
+        where: { id: customer.tenant_id },
+        select: { name: true },
+      }),
+    ]);
 
     return {
       id: customer.id,
@@ -123,6 +129,7 @@ export class CustomerService {
       gender: customer.gender,
       address: customer.address,
       avatarUrl: customer.avatar_url,
+      tenantName: tenant?.name || 'FitFlow',
       homeBranch: branch,
       faceConsentAt: customer.face_consent_at,
       emergencyContactName: customer.emergency_contact_name,
@@ -209,12 +216,12 @@ export class CustomerService {
       where: {
         tenant_id: customer.tenant_id,
         customer_id: customer.id,
-        status: 'SUCCESS',
+        status: { not: 'CANCELLED' },
       },
       select: { check_in_at: true },
     });
     const uniqueGymDays = new Set(
-      gymCheckins.map((a) => a.check_in_at.toISOString().slice(0, 10)),
+      gymCheckins.map((a) => this.toLocalDateStr(a.check_in_at)),
     ).size;
 
     // Fetch active PT package summary if any

@@ -84,8 +84,8 @@ export class OwnerBranchesService {
       phone: branch.phone,
       email: branch.email,
       openingDays: branch.opening_days,
-      openingTime: branch.opening_time,
-      closingTime: branch.closing_time,
+      openingTime: this.formatTimeStr(branch.opening_time),
+      closingTime: this.formatTimeStr(branch.closing_time),
       status: branch.status,
       memberCount: branch._count.customers,
       staffCount: branch._count.user_branches,
@@ -300,6 +300,28 @@ export class OwnerBranchesService {
   }
 
   private toTime(hhmm: string) {
-    return new Date(`1970-01-01T${hhmm}:00`);
+    const [h, m] = (hhmm || '00:00').split(':');
+    const hh = String(h || '00').padStart(2, '0');
+    const mm = String(m || '00').padStart(2, '0');
+    return new Date(`1970-01-01T${hh}:${mm}:00.000Z`);
+  }
+
+  private formatTimeStr(t: Date | string | null | undefined): string | null {
+    if (!t) return null;
+    if (typeof t === 'string') {
+      if (t.includes('T')) {
+        const d = new Date(t);
+        const hh = String(d.getUTCHours()).padStart(2, '0');
+        const mm = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+      }
+      return t.slice(0, 5);
+    }
+    if (t instanceof Date) {
+      const hh = String(t.getUTCHours()).padStart(2, '0');
+      const mm = String(t.getUTCMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+    return null;
   }
 }

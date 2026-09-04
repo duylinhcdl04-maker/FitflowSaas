@@ -65,6 +65,24 @@ export class CreateWorkoutLogDto {
   notes?: string;
 }
 
+export class UpdateWorkoutLogDto {
+  @IsString()
+  @IsNotEmpty()
+  workoutContent!: string;
+
+  @IsString()
+  @IsOptional()
+  mainExercises?: string;
+
+  @IsString()
+  @IsOptional()
+  progressAssessment?: string;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}
+
 export class CreatePtPackagePlanDto {
   @IsString()
   @IsNotEmpty()
@@ -154,6 +172,38 @@ export class MarkNoShowDto {
   @IsNotEmpty()
   bookingId!: string;
 
+  @IsString()
+  @IsOptional()
+  reason?: string;
+}
+
+export class CreateInBodyRecordDto {
+  @IsString()
+  @IsNotEmpty()
+  customerId!: string;
+
+  @IsNumber()
+  @Min(1)
+  weightKg!: number;
+
+  @IsNumber()
+  @IsOptional()
+  bodyFatPercent?: number;
+
+  @IsNumber()
+  @IsOptional()
+  muscleMassKg?: number;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
+  measuredAt?: string;
+}
+
+export class CancelPtPackageDto {
   @IsString()
   @IsOptional()
   reason?: string;

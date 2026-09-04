@@ -17,4 +17,5 @@ export interface JwtPayload {
 
 export interface RequestUser extends JwtPayload {
   id: string; // alias of sub, set by JwtStrategy for convenience
+  selectedBranchId?: string; // from X-Branch-Id header or query branchId
 }

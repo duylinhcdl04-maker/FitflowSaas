@@ -25,13 +25,29 @@ import type { QuickActionType } from './QuickActionsModals';
 export default function ManagerShell() {
   const clearSession = useAuthStore((s) => s.clearSession);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
   const [activeQuickAction, setActiveQuickAction] = useState<QuickActionType>(null);
-  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [activeBranchId, setActiveBranchId] = useState<string | null>(() =>
+    localStorage.getItem('fitflow_active_branch_id'),
+  );
+
+  useEffect(() => {
+    function handleBranchChanged(e: Event) {
+      const customEvent = e as CustomEvent<{ branchId: string }>;
+      setActiveBranchId(customEvent.detail?.branchId || localStorage.getItem('fitflow_active_branch_id'));
+    }
+    window.addEventListener('fitflow:branch-changed', handleBranchChanged);
+    window.addEventListener('storage', handleBranchChanged);
+    return () => {
+      window.removeEventListener('fitflow:branch-changed', handleBranchChanged);
+      window.removeEventListener('storage', handleBranchChanged);
+    };
+  }, []);
 
   const { data: context, error: contextError } = useQuery({
-    queryKey: ['manager-context'],
-    queryFn: () => getManagerContext(),
+    queryKey: ['manager-context', activeBranchId],
+    queryFn: () => getManagerContext(activeBranchId || undefined),
     retry: false,
   });
 
@@ -115,23 +131,52 @@ export default function ManagerShell() {
         userName={context?.user.full_name}
         branchName={context?.branch.name}
         brandName={context?.tenant?.name || context?.tenant?.legalName}
+        branch={context?.branch}
       />
 
       {/* Branch Context Bar (Sticky, 100% Mobile Clean Overflow Layout) */}
-      <div className="min-h-[44px] shrink-0 border-b border-slate-200/80 bg-white dark:border-zinc-800/80 dark:bg-zinc-900/90 sticky top-[56px] z-20 py-1.5 px-3 sm:px-4">
-        <div className="max-w-[1680px] w-full mx-auto h-full flex items-center justify-between gap-2 text-xs">
-          {/* Branch Info Pill */}
-          <div className="flex items-center gap-1.5 sm:gap-2 text-slate-600 dark:text-zinc-400 overflow-hidden text-[11px] sm:text-xs">
-            <Storefront size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span className="font-bold text-slate-900 dark:text-zinc-100 truncate max-w-[110px] sm:max-w-none">
-              {context?.branch.name || 'Cơ sở 2 Hà Nội'}
-            </span>
-            <span className="shrink-0">·</span>
+      <div className="min-h-[44px] shrink-0 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-900/95 sticky top-[56px] z-20 py-1.5 px-3 sm:px-4">
+        <div className="max-w-[1680px] w-full mx-auto h-full flex flex-wrap items-center justify-between gap-2 text-xs">
+          {/* Complete Branch Information Bar */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 text-slate-600 dark:text-zinc-400 text-[11px] sm:text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-zinc-100">
+              <Storefront size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>Cơ sở: <strong className="text-emerald-600 dark:text-emerald-400">{context?.branch.name || 'Chi nhánh'}</strong></span>
+            </div>
+
+            {context?.branch.address && (
+              <>
+                <span className="text-slate-300 dark:text-zinc-700 hidden sm:inline">·</span>
+                <span className="hidden sm:inline-flex items-center gap-1 truncate max-w-[220px]" title={context.branch.address}>
+                  📍 {context.branch.address}
+                </span>
+              </>
+            )}
+
+            {context?.branch.phone && (
+              <>
+                <span className="text-slate-300 dark:text-zinc-700 hidden md:inline">·</span>
+                <span className="hidden md:inline-flex items-center gap-1">
+                  📞 Hotline: <strong className="font-semibold text-slate-800 dark:text-zinc-200">{context.branch.phone}</strong>
+                </span>
+              </>
+            )}
+
+            {context?.branch.managerName && (
+              <>
+                <span className="text-slate-300 dark:text-zinc-700 hidden xl:inline">·</span>
+                <span className="hidden xl:inline-flex items-center gap-1 text-slate-500 dark:text-zinc-400">
+                  👤 Phụ trách: <strong className="text-slate-700 dark:text-zinc-300">{context.branch.managerName}</strong>
+                </span>
+              </>
+            )}
+
+            <span className="text-slate-300 dark:text-zinc-700">·</span>
             <span className="inline-flex items-center gap-1 text-emerald-600 font-bold dark:text-emerald-400 shrink-0">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Đang mở
             </span>
-            <span className="hidden md:inline">·</span>
+            <span className="hidden md:inline text-slate-300 dark:text-zinc-700">·</span>
             <span className="hidden md:inline capitalize">{todayString}</span>
           </div>
 
@@ -140,7 +185,7 @@ export default function ManagerShell() {
             <button
               type="button"
               onClick={() => setIsQuickActionsOpen(!isQuickActionsOpen)}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 font-bold text-slate-800 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 transition-all shadow-xs text-[11px] sm:text-xs"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 font-bold text-slate-800 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 transition-all shadow-xs text-[11px] sm:text-xs cursor-pointer"
             >
               <Plus size={13} className="text-emerald-600 dark:text-emerald-400" />
               <span>Thao tác nhanh</span>
@@ -161,7 +206,7 @@ export default function ManagerShell() {
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-zinc-800 transition-colors text-left"
                   >
                     <UserPlus size={16} className="text-emerald-600 shrink-0" />
-                    <span>Đăng ký hội viên</span>
+                    <span>Thêm hội viên mới</span>
                   </button>
                   <button
                     type="button"
@@ -196,7 +241,7 @@ export default function ManagerShell() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-[1680px] w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 xl:px-8 xl:py-8 overflow-x-hidden">
-        <Outlet />
+        <Outlet context={{ context }} />
       </main>
 
       <FirstLoginPasswordModal

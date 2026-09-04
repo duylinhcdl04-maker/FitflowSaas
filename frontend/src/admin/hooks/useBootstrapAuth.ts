@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { fetchMe, refresh } from '../api/auth';
 import { useAuthStore } from '../store/auth-store';
 
-/** On app load, try to silently restore a session from the httpOnly refresh cookie. */
+/** On app load, try to silently restore/verify session. */
 export function useBootstrapAuth() {
   const setSession = useAuthStore((s) => s.setSession);
   const clearSession = useAuthStore((s) => s.clearSession);
@@ -12,6 +12,40 @@ export function useBootstrapAuth() {
     let cancelled = false;
 
     async function run() {
+      const existingToken = useAuthStore.getState().accessToken;
+
+      if (existingToken) {
+        setHydrating(false);
+        try {
+          const me = await fetchMe();
+          if (!cancelled) {
+            setSession(existingToken, {
+              id: me.id,
+              email: me.email,
+              fullName: me.fullName,
+              roles: me.roles,
+            });
+          }
+        } catch {
+          try {
+            const { accessToken } = await refresh();
+            useAuthStore.getState().setAccessToken(accessToken);
+            const me = await fetchMe();
+            if (!cancelled) {
+              setSession(accessToken, {
+                id: me.id,
+                email: me.email,
+                fullName: me.fullName,
+                roles: me.roles,
+              });
+            }
+          } catch {
+            if (!cancelled) clearSession();
+          }
+        }
+        return;
+      }
+
       try {
         const { accessToken } = await refresh();
         useAuthStore.getState().setAccessToken(accessToken);
@@ -27,7 +61,7 @@ export function useBootstrapAuth() {
       } catch {
         if (!cancelled) clearSession();
       } finally {
-        setHydrating(false);
+        if (!cancelled) setHydrating(false);
       }
     }
 

@@ -14,6 +14,7 @@ export interface CustomerProfile {
   gender: string | null;
   address: string | null;
   avatarUrl: string | null;
+  tenantName?: string | null;
   homeBranch: { id: string; name: string } | null;
   faceConsentAt: string | null;
   emergencyContactName: string | null;

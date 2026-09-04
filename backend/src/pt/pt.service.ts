@@ -11,11 +11,14 @@ import {
   RejectBookingDto,
   CompleteSessionDto,
   CreateWorkoutLogDto,
+  UpdateWorkoutLogDto,
   CreatePtPackagePlanDto,
   UpdatePtProfileDto,
   UpdateWorkingHoursDto,
   CreatePtBookingByPtDto,
   MarkNoShowDto,
+  CreateInBodyRecordDto,
+  CancelPtPackageDto,
 } from './dto/pt.dto';
 
 function formatBookingTime(d: Date): string {
@@ -83,6 +86,12 @@ export class PtService {
 
   private async getPtUserBranch(user: any) {
     const tenantId = this.getTenantId(user);
+    if (user.selectedBranchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: user.selectedBranchId, tenant_id: tenantId, status: 'ACTIVE' },
+      });
+      if (branch) return branch.id;
+    }
     const userBranch = await this.prisma.user_branches.findFirst({
       where: { user_id: user.id, tenant_id: tenantId },
       orderBy: { is_primary: 'desc' },
@@ -645,7 +654,14 @@ export class PtService {
         customer_id: customerId,
       },
       include: {
-        customers: true,
+        customers: {
+          include: {
+            customer_inbody_records: {
+              orderBy: { measured_at: 'desc' },
+              take: 20,
+            },
+          },
+        },
         pt_session_logs: {
           orderBy: { created_at: 'desc' },
         },
@@ -681,6 +697,17 @@ export class PtService {
       );
     }
 
+    if (dto.bookingId) {
+      const booking = await this.prisma.ptBooking.findUnique({
+        where: { id: dto.bookingId },
+      });
+      if (booking && new Date(booking.scheduled_start).getTime() > Date.now()) {
+        throw new BadRequestException(
+          'Không thể ghi nhật ký cho ca dạy chưa diễn ra ở tương lai!',
+        );
+      }
+    }
+
     const notePayload = JSON.stringify({
       workoutContent: dto.workoutContent,
       mainExercises: dto.mainExercises,
@@ -697,6 +724,92 @@ export class PtService {
         reason: 'WORKOUT_LOG',
         note: notePayload,
         created_by: user.id,
+      },
+    });
+  }
+
+  async updateWorkoutLog(user: any, id: string, dto: UpdateWorkoutLogDto) {
+    const tenantId = this.getTenantId(user);
+    const log = await this.prisma.pt_session_logs.findFirst({
+      where: { id, tenant_id: tenantId },
+      include: { customer_pt_packages: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException('Không tìm thấy bản ghi nhật ký bài tập');
+    }
+
+    if (log.customer_pt_packages.pt_user_id !== user.id && log.created_by !== user.id) {
+      throw new ForbiddenException('Bạn không có quyền chỉnh sửa nhật ký này');
+    }
+
+    if (log.reason !== 'WORKOUT_LOG' && log.delta !== 0) {
+      throw new BadRequestException('Chỉ có thể chỉnh sửa nhật ký bài tập!');
+    }
+
+    const notePayload = JSON.stringify({
+      workoutContent: dto.workoutContent,
+      mainExercises: dto.mainExercises,
+      progressAssessment: dto.progressAssessment,
+      customNotes: dto.notes,
+    });
+
+    return this.prisma.pt_session_logs.update({
+      where: { id },
+      data: { note: notePayload },
+    });
+  }
+
+  async deleteWorkoutLog(user: any, id: string) {
+    const tenantId = this.getTenantId(user);
+    const log = await this.prisma.pt_session_logs.findFirst({
+      where: { id, tenant_id: tenantId },
+      include: { customer_pt_packages: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException('Không tìm thấy bản ghi nhật ký bài tập');
+    }
+
+    if (log.customer_pt_packages.pt_user_id !== user.id && log.created_by !== user.id) {
+      throw new ForbiddenException('Bạn không có quyền xóa nhật ký này');
+    }
+
+    if (log.reason !== 'WORKOUT_LOG' && log.delta !== 0) {
+      throw new BadRequestException('Không thể xóa bản ghi hoàn thành ca dạy trừ buổi!');
+    }
+
+    return this.prisma.pt_session_logs.delete({
+      where: { id },
+    });
+  }
+
+  async createInBodyRecord(user: any, dto: CreateInBodyRecordDto) {
+    const tenantId = this.getTenantId(user);
+    const pkg = await this.prisma.customer_pt_packages.findFirst({
+      where: {
+        tenant_id: tenantId,
+        pt_user_id: user.id,
+        customer_id: dto.customerId,
+      },
+    });
+
+    if (!pkg) {
+      throw new ForbiddenException(
+        'Bạn không có quyền ghi chỉ số InBody cho học viên này',
+      );
+    }
+
+    return this.prisma.customer_inbody_records.create({
+      data: {
+        tenant_id: tenantId,
+        customer_id: dto.customerId,
+        recorded_by_user_id: user.id,
+        weight_kg: dto.weightKg,
+        body_fat_percent: dto.bodyFatPercent ?? null,
+        muscle_mass_kg: dto.muscleMassKg ?? null,
+        notes: dto.notes ?? null,
+        measured_at: dto.measuredAt ? new Date(dto.measuredAt) : new Date(),
       },
     });
   }
@@ -804,5 +917,48 @@ export class PtService {
         // preserve basic info
       },
     });
+  }
+
+  async cancelPtPackage(user: any, packageId: string, dto?: CancelPtPackageDto) {
+    const tenantId = this.getTenantId(user);
+    const pkg = await this.prisma.customer_pt_packages.findFirst({
+      where: {
+        id: packageId,
+        tenant_id: tenantId,
+      },
+    });
+
+    if (!pkg) {
+      throw new NotFoundException('Không tìm thấy gói PT');
+    }
+
+    if (pkg.status === 'CANCELLED') {
+      throw new BadRequestException('Gói PT này đã bị hủy trước đó');
+    }
+
+    const updated = await this.prisma.customer_pt_packages.update({
+      where: { id: packageId },
+      data: {
+        status: 'CANCELLED',
+        cancelled_at: new Date(),
+        cancel_reason: dto?.reason || 'Hủy theo yêu cầu của PT / Hội viên',
+      },
+    });
+
+    // Also cancel any active/pending bookings for this package
+    await this.prisma.ptBooking.updateMany({
+      where: {
+        customer_pt_package_id: packageId,
+        status: { in: ['PENDING', 'CONFIRMED', 'SCHEDULED'] },
+      },
+      data: {
+        status: 'CANCELLED',
+        cancelled_at: new Date(),
+        cancel_reason: 'Gói PT đã bị thanh lý/hủy bỏ',
+        cancelled_by: user.id,
+      },
+    });
+
+    return updated;
   }
 }

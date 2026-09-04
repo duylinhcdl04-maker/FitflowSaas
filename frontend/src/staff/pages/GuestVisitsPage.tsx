@@ -122,7 +122,7 @@ export default function StaffGuestVisitsPage() {
         setPendingQr({ paymentId: res.paymentId, qrUrl: res.qrUrl, amount: res.amount, expiresAt: res.expiresAt });
         return;
       }
-      setSuccessMsg(`Đã tiếp đón vé lượt thành công! Hệ thống tự động kích hoạt Check-in IN_GYM (BR-STAFF-002).`);
+      setSuccessMsg(`Đã tiếp đón vé lượt thành công! Hệ thống tự động kích hoạt Check-in tại phòng tập.`);
       resetCreateForm();
       queryClient.invalidateQueries({ queryKey: ['staff-guest-visits'] });
       queryClient.invalidateQueries({ queryKey: ['staff-currently-in-gym'] });
@@ -171,7 +171,7 @@ export default function StaffGuestVisitsPage() {
             Quản Lý Khách Vãng Lai & Vé Lượt
           </h1>
           <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
-            Bán vé lẻ 1 buổi, tự động kích hoạt Check-in (BR-STAFF-002) và quản lý trạng thái Tạm hoãn (On-Hold).
+            Bán vé lẻ 1 buổi, tự động kích hoạt Check-in và quản lý trạng thái Tạm hoãn (On-Hold).
           </p>
         </div>
 
@@ -426,7 +426,7 @@ export default function StaffGuestVisitsPage() {
           onConfirmed={() => {
             setPendingQr(null);
             resetCreateForm();
-            setSuccessMsg('Đã nhận thanh toán qua SePay! Hệ thống tự động kích hoạt Check-in IN_GYM (BR-STAFF-002).');
+            setSuccessMsg('Đã nhận thanh toán qua SePay! Hệ thống tự động kích hoạt Check-in tại phòng tập.');
             queryClient.invalidateQueries({ queryKey: ['staff-guest-visits'] });
             queryClient.invalidateQueries({ queryKey: ['staff-currently-in-gym'] });
             queryClient.invalidateQueries({ queryKey: ['staff-dashboard-overview'] });

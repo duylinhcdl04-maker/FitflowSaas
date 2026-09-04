@@ -13,8 +13,8 @@ export default function PtPackagesPage() {
   const [description, setDescription] = useState('');
   const [sessionCount, setSessionCount] = useState<number>(10);
   const [price, setPrice] = useState<number>(3000000);
-  const [validityDays] = useState<number>(60);
-  const [sessionDurationMinutes] = useState<number>(60);
+  const [validityDays, setValidityDays] = useState<number>(60);
+  const [sessionDurationMinutes, setSessionDurationMinutes] = useState<number>(60);
 
   const { data: packagesList, isLoading, isError } = useQuery({
     queryKey: ['pt-packages'],
@@ -175,6 +175,35 @@ export default function PtPackagesPage() {
                     type="number"
                     value={price}
                     onChange={(e) => setPrice(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-zinc-300">Thời lượng / Buổi *</label>
+                  <select
+                    value={sessionDurationMinutes}
+                    onChange={(e) => setSessionDurationMinutes(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  >
+                    <option value={30}>30 Phút</option>
+                    <option value={45}>45 Phút</option>
+                    <option value={60}>60 Phút (Tiêu chuẩn)</option>
+                    <option value={75}>75 Phút</option>
+                    <option value={90}>90 Phút</option>
+                    <option value={120}>120 Phút (2 Tiếng)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-zinc-300">Hạn sử dụng (Ngày) *</label>
+                  <input
+                    type="number"
+                    value={validityDays}
+                    onChange={(e) => setValidityDays(Number(e.target.value))}
+                    placeholder="Ví dụ: 60 ngày"
                     className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
                   />
                 </div>

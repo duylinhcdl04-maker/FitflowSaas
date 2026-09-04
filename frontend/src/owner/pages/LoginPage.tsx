@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { login, lookupTenant, resendOtpByEmail } from '../api/auth';
+import { login, resolveTenant, resendOtpByEmail } from '../api/auth';
 import { establishSession } from '../hooks/useBootstrapAuth';
 import { apiErrorMessage } from '../api/client';
+import { useTenant, getTenantSlugFromHostname, getRootDomain } from '../../tenant/tenant-context';
 import AuthLayout from '../components/AuthLayout';
 import Callout from '../components/Callout';
 import Card from '../components/Card';
@@ -13,17 +14,18 @@ import FormField, { inputClass } from '../components/FormField';
 import PasswordInput from '../components/PasswordInput';
 import { Skeleton } from '../components/Skeleton';
 
+import FindStorePage from './FindStorePage';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
 
-// Bước 2 của đăng nhập — form mật khẩu thật, gắn nhãn theo đúng cửa hàng vừa
-// tìm ở FindStorePage. Mô phỏng cho URL sau này: `{slug}.fitflow.vn/login`.
+export { getTenantSlugFromHostname };
+
+// Bước 2: Tenant Login (FLOW 3) — Hiển thị form đăng nhập cho tenant cụ thể
 export default function LoginPage() {
-  let { slug } = useParams<{ slug: string }>();
+  const { tenant, hostnameSlug, redirectToDiscovery } = useTenant();
+  let { slug } = useParams<{ slug?: string }>();
+
   if (!slug) {
-    const hostParts = window.location.hostname.split('.');
-    if (hostParts.length > 2 && hostParts[0] !== 'www') {
-      slug = hostParts[0];
-    }
+    slug = hostnameSlug ?? undefined;
   }
 
   const navigate = useNavigate();
@@ -34,12 +36,20 @@ export default function LoginPage() {
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
 
+  // Nếu không ở subdomain và không có slug -> hiển thị Tenant Discovery
+  if (!slug) return <FindStorePage />;
+
+  // Nếu tenant trong context đã có dữ liệu trùng slug, ưu tiên dùng
+  const activeTenantName = tenant?.slug === slug ? tenant.name : null;
+
   const tenantQuery = useQuery({
     queryKey: ['lookup-tenant', slug],
-    queryFn: () => lookupTenant(slug!),
-    enabled: !!slug,
+    queryFn: () => resolveTenant(slug!),
+    enabled: !activeTenantName && !!slug,
     retry: false,
   });
+
+  const tenantName = activeTenantName || tenantQuery.data?.name || slug;
 
   const mutation = useMutation({
     mutationFn: () => login(email, password),
@@ -80,16 +90,18 @@ export default function LoginPage() {
     mutation.mutate();
   }
 
-  if (!slug) return <Navigate to="/owner/login" replace />;
-
-  if (tenantQuery.isError) {
+  if (tenantQuery.isError && !activeTenantName) {
     return (
       <AuthLayout>
         <Card className="w-full max-w-sm text-center">
           <p className="text-sm text-red-600 dark:text-red-400">Không tìm thấy cửa hàng "{slug}".</p>
-          <Link to="/owner/login" className="mt-4 inline-block text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-400">
+          <button
+            type="button"
+            onClick={() => redirectToDiscovery('/owner/login')}
+            className="mt-4 inline-block text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-400"
+          >
             ← Thử địa chỉ khác
-          </Link>
+          </button>
         </Card>
       </AuthLayout>
     );
@@ -99,14 +111,16 @@ export default function LoginPage() {
     <AuthLayout>
       <Card className="w-full max-w-sm">
         <div className="flex flex-col items-center gap-2 text-center">
-          {tenantQuery.isLoading ? (
+          {tenantQuery.isLoading && !activeTenantName ? (
             <Skeleton className="h-6 w-40" />
           ) : (
             <h1 className="font-display text-xl font-bold text-zinc-900 dark:text-zinc-50">
-              Đăng nhập vào {tenantQuery.data?.name}
+              Đăng nhập vào {tenantName}
             </h1>
           )}
-          <p className="font-mono text-sm text-zinc-500 dark:text-zinc-400">{slug}.fitflow.io.vn</p>
+          <p className="font-mono text-sm text-zinc-500 dark:text-zinc-400">
+            {slug}.{window.location.hostname.endsWith('.localhost') ? 'localhost' : (getRootDomain(window.location.hostname) || 'fitfloww.store')}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
@@ -154,9 +168,13 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          <Link to="/owner/login" className="hover:underline">
+          <button
+            type="button"
+            onClick={() => redirectToDiscovery('/owner/login')}
+            className="hover:underline text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+          >
             ← Không phải cửa hàng của bạn?
-          </Link>
+          </button>
         </p>
 
         <ForgotPasswordModal

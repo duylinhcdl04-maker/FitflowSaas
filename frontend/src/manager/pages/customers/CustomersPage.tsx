@@ -18,12 +18,17 @@ import {
   CaretRight,
   Eye,
   LockKey,
+  Trash,
+  Money,
+  CalendarCheck,
+  Check,
 } from '@phosphor-icons/react';
 import {
   getManagerCustomers,
   getBranchPackages,
   registerCustomerWithAccount,
   assignMembershipPackage,
+  cancelCustomerMembership,
   toggleCustomerStatus,
   manualCheckin,
   manualCheckout,
@@ -36,6 +41,7 @@ import { inputClass } from '../../../owner/components/FormField';
 import { Skeleton } from '../../../owner/components/Skeleton';
 import Callout from '../../../owner/components/Callout';
 import MemberDetailModal from '../../components/MemberDetailModal';
+import PendingQrPaymentModal from '../../components/PendingQrPaymentModal';
 
 export default function ManagerCustomersPage() {
   const queryClient = useQueryClient();
@@ -64,6 +70,8 @@ export default function ManagerCustomersPage() {
   // Form states - Assign Package
   const [selectedPackageId, setSelectedPackageId] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentMethod, setPaymentMethod] = useState('VIETQR');
+  const [pendingQr, setPendingQr] = useState<{ paymentId: string; qrUrl: string; amount: number; expiresAt: string } | null>(null);
 
   // Notifications
   const [error, setError] = useState<string | null>(null);
@@ -141,10 +149,16 @@ export default function ManagerCustomersPage() {
         customerId: selectedCustomer?.id,
         packageId: selectedPackageId,
         startDate,
+        paymentMethod,
       }),
-    onSuccess: () => {
-      setSuccess('Gán gói tập chi nhánh thành công!');
+    onSuccess: (res: any) => {
       setError(null);
+      if (res?.requiresPayment) {
+        setIsAssignModalOpen(false);
+        setPendingQr({ paymentId: res.paymentId, qrUrl: res.qrUrl, amount: res.amount, expiresAt: res.expiresAt });
+        return;
+      }
+      setSuccess('Gán gói tập chi nhánh thành công!');
       queryClient.invalidateQueries({ queryKey: ['manager-customers-list'] });
       setTimeout(() => {
         setIsAssignModalOpen(false);
@@ -156,6 +170,19 @@ export default function ManagerCustomersPage() {
     onError: (err: any) => {
       setError(err?.response?.data?.message || 'Không thể gán gói tập');
       setSuccess(null);
+    },
+  });
+
+  const cancelMembershipMutation = useMutation({
+    mutationFn: ({ customerId, membershipId }: { customerId: string; membershipId?: string }) =>
+      cancelCustomerMembership(customerId, membershipId),
+    onSuccess: (res) => {
+      const msg = res.message || 'Đã gỡ gói tập thành công!';
+      showToast(msg, 'success');
+      queryClient.invalidateQueries({ queryKey: ['manager-customers-list'] });
+    },
+    onError: (err: any) => {
+      showToast(err?.response?.data?.message || 'Không thể gỡ gói tập', 'error');
     },
   });
 
@@ -452,7 +479,7 @@ export default function ManagerCustomersPage() {
                     <th className="px-4 py-3">Số điện thoại</th>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Gói tập</th>
-                    <th className="px-4 py-3">Vận hành</th>
+                    <th className="px-4 py-3">Trạng thái Check-in</th>
                     <th className="px-4 py-3">Trạng thái</th>
                     <th className="px-4 py-3 text-right">Thao tác</th>
                   </tr>
@@ -570,14 +597,33 @@ export default function ManagerCustomersPage() {
                                 <LockKey size={16} />
                               </button>
 
-                              {/* Gán gói */}
-                              {!activeMembership && (
+                              {/* Gán gói / Gỡ gói */}
+                              {!activeMembership ? (
                                 <button
                                   onClick={() => handleOpenAssignModal(c)}
                                   className="px-2.5 py-1 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                                   title="Gán gói tập cho khách"
                                 >
                                   <Sparkle size={14} /> Gán gói
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={async () => {
+                                    const confirmed = await showConfirm({
+                                      title: '⚠️ Gỡ gói tập hội viên',
+                                      text: `Bạn có chắc chắn muốn gỡ gói tập "${activeMembership.package_name_snapshot}" của hội viên ${c.full_name}?`,
+                                      confirmButtonText: 'Đồng ý gỡ gói',
+                                      cancelButtonText: 'Hủy bỏ',
+                                      icon: 'warning',
+                                    });
+                                    if (confirmed) {
+                                      cancelMembershipMutation.mutate({ customerId: c.id, membershipId: activeMembership.id });
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/60 dark:text-rose-300 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Gỡ gói tập hiện tại của hội viên"
+                                >
+                                  <Trash size={14} /> Gỡ gói
                                 </button>
                               )}
 
@@ -824,23 +870,34 @@ export default function ManagerCustomersPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-xs"
+              className="fixed inset-0 bg-slate-900/50 dark:bg-black/70 backdrop-blur-xs"
               onClick={() => setIsAssignModalOpen(false)}
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 10 }}
-              transition={{ duration: 0.2 }}
-              className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 flex flex-col gap-4"
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="relative w-full max-w-lg rounded-3xl bg-white p-6 sm:p-7 shadow-2xl dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 flex flex-col gap-5 max-h-[90vh] overflow-y-auto"
             >
-              <div>
-                <h3 className="font-display text-lg font-bold text-slate-900 dark:text-zinc-50">
-                  Gán gói tập kinh doanh tại Chi nhánh
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Gán gói tập để kích hoạt thẻ hội viên cho khách hàng <strong>{selectedCustomer?.full_name}</strong>.
-                </p>
+              {/* Header with Icon Badge */}
+              <div className="flex items-start gap-3.5 pb-3 border-b border-slate-100 dark:border-zinc-800">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/20">
+                  <Sparkle size={22} weight="fill" />
+                </div>
+                <div>
+                  <h3 className="font-display text-lg font-bold text-slate-900 dark:text-zinc-50 tracking-tight">
+                    Gán gói tập & Kích hoạt hội viên
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                    Hội viên được chọn: <strong className="text-slate-800 dark:text-zinc-200">{selectedCustomer?.full_name}</strong>
+                    {selectedCustomer?.customer_code && (
+                      <span className="ml-1.5 inline-flex items-center rounded-md bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 text-[11px] font-mono font-semibold text-slate-700 dark:text-zinc-300">
+                        {selectedCustomer.customer_code}
+                      </span>
+                    )}
+                  </p>
+                </div>
               </div>
 
               {error && <Callout tone="danger">{error}</Callout>}
@@ -855,49 +912,164 @@ export default function ManagerCustomersPage() {
                   }
                   assignPackageMutation.mutate();
                 }}
-                className="flex flex-col gap-3.5"
+                className="flex flex-col gap-4"
               >
-                {/* Chọn gói */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">Danh sách gói tập khả dụng</label>
+                {/* 1. Chọn gói tập */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-between">
+                    <span>1. Chọn gói tập khả dụng *</span>
+                    <span className="text-[11px] font-normal text-slate-400">Chi nhánh áp dụng</span>
+                  </label>
                   <select
                     required
-                    className={`${inputClass} text-xs h-10`}
+                    className={`${inputClass} text-xs h-11 font-medium rounded-xl border-slate-300 dark:border-zinc-700 bg-slate-50/50 dark:bg-zinc-800/50 focus:bg-white dark:focus:bg-zinc-900 transition-all`}
                     value={selectedPackageId}
-                    onChange={(e) => setSelectedPackageId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedPackageId(e.target.value);
+                      setError(null);
+                    }}
                   >
-                    <option value="">-- Chọn gói tập --</option>
+                    <option value="">-- Click để chọn gói tập --</option>
                     {branchPackages.map((pkg) => (
                       <option key={pkg.id} value={pkg.id}>
-                        {pkg.name} ({Number(pkg.basePrice).toLocaleString('vi-VN')} đ / {pkg.durationValue} {pkg.durationUnit === 'MONTH' ? 'Tháng' : pkg.durationUnit})
+                        {pkg.name} — {Number(pkg.basePrice).toLocaleString('vi-VN')} đ ({pkg.durationValue} {pkg.durationUnit === 'MONTH' ? 'Tháng' : pkg.durationUnit})
                       </option>
                     ))}
                   </select>
                   {branchPackages.length === 0 && (
-                    <span className="text-[10px] text-rose-500 italic mt-0.5">
-                      * Chi nhánh hiện tại chưa được Owner gán gói tập nào. Vui lòng liên hệ Owner.
+                    <span className="text-[11px] text-rose-500 font-medium italic mt-0.5">
+                      * Chi nhánh hiện tại chưa có gói tập nào được mở bán. Vui lòng tạo/gán gói tập trong mục Gói Tập.
                     </span>
                   )}
                 </div>
 
-                {/* Chọn ngày kích hoạt */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">Ngày bắt đầu kích hoạt</label>
+                {/* 2. Ngày kích hoạt */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5">
+                    <CalendarCheck size={16} className="text-emerald-600 dark:text-emerald-400" />
+                    <span>2. Ngày bắt đầu kích hoạt gói *</span>
+                  </label>
                   <input
                     type="date"
                     required
-                    className={`${inputClass} text-xs h-10`}
+                    className={`${inputClass} text-xs h-11 rounded-xl border-slate-300 dark:border-zinc-700 bg-slate-50/50 dark:bg-zinc-800/50 focus:bg-white dark:focus:bg-zinc-900`}
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                   />
                 </div>
 
-                <div className="mt-4 flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-zinc-800">
-                  <Button variant="secondary" size="sm" type="button" onClick={() => setIsAssignModalOpen(false)}>
-                    Hủy
+                {/* 3. Lựa chọn phương thức thanh toán (Visual Interactive Cards) */}
+                <div className="flex flex-col gap-2 pt-1">
+                  <label className="text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-between">
+                    <span>3. Phương thức thanh toán *</span>
+                    <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Tự động & Bảo mật</span>
+                  </label>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Option 1: VietQR Online */}
+                    <div
+                      onClick={() => setPaymentMethod('VIETQR')}
+                      className={`relative flex flex-col justify-between p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
+                        paymentMethod === 'VIETQR'
+                          ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 shadow-sm shadow-emerald-500/10'
+                          : 'border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 bg-slate-50/30 dark:bg-zinc-800/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className={`p-2 rounded-xl ${paymentMethod === 'VIETQR' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:text-zinc-200'}`}>
+                          <QrCode size={20} />
+                        </div>
+                        {paymentMethod === 'VIETQR' && (
+                          <div className="h-5 w-5 rounded-full bg-emerald-500 text-white flex items-center justify-center">
+                            <Check size={12} weight="bold" />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900 dark:text-zinc-100">VietQR Online</span>
+                          <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-100 dark:bg-emerald-900/80 dark:text-emerald-300 px-1.5 py-0.5 rounded-md">
+                            Khuyên dùng
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-1 leading-tight">
+                          Quét mã QR. Tiền về tự động xác nhận 24/7 qua SePay.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Option 2: Tiền mặt */}
+                    <div
+                      onClick={() => setPaymentMethod('CASH')}
+                      className={`relative flex flex-col justify-between p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
+                        paymentMethod === 'CASH'
+                          ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 shadow-sm shadow-emerald-500/10'
+                          : 'border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 bg-slate-50/30 dark:bg-zinc-800/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className={`p-2 rounded-xl ${paymentMethod === 'CASH' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:text-zinc-200'}`}>
+                          <Money size={20} />
+                        </div>
+                        {paymentMethod === 'CASH' && (
+                          <div className="h-5 w-5 rounded-full bg-emerald-500 text-white flex items-center justify-center">
+                            <Check size={12} weight="bold" />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900 dark:text-zinc-100">Tiền mặt</span>
+                          <span className="text-[10px] font-semibold text-slate-600 bg-slate-200/80 dark:bg-zinc-700 dark:text-zinc-300 px-1.5 py-0.5 rounded-md">
+                            Tại quầy
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-1 leading-tight">
+                          Thu tiền mặt trực tiếp từ hội viên và kích hoạt ngay.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Selected Package Summary Card */}
+                {(() => {
+                  const chosenPkg = branchPackages.find((p) => p.id === selectedPackageId);
+                  if (!chosenPkg) return null;
+                  const priceFormatted = Number(chosenPkg.basePrice).toLocaleString('vi-VN');
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 dark:from-zinc-950 dark:to-zinc-900 text-white shadow-lg flex items-center justify-between gap-4 mt-1 border border-slate-700 dark:border-zinc-800">
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Tóm tắt thanh toán</span>
+                        <h4 className="text-sm font-bold text-white mt-0.5">{chosenPkg.name}</h4>
+                        <p className="text-[11px] text-slate-300">
+                          {chosenPkg.durationValue} {chosenPkg.durationUnit === 'MONTH' ? 'Tháng' : chosenPkg.durationUnit} • Bắt đầu: {startDate}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-emerald-400 block font-semibold">Tổng học phí</span>
+                        <span className="font-display text-lg font-extrabold text-emerald-400">{priceFormatted} đ</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Footer Action Buttons */}
+                <div className="mt-2 flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-zinc-800">
+                  <Button variant="secondary" size="sm" type="button" onClick={() => setIsAssignModalOpen(false)} className="rounded-xl px-4">
+                    Hủy bỏ
                   </Button>
-                  <Button size="sm" type="submit" disabled={assignPackageMutation.isPending || branchPackages.length === 0}>
-                    {assignPackageMutation.isPending ? 'Đang gán...' : 'Gán gói & Kích hoạt'}
+                  <Button
+                    size="sm"
+                    type="submit"
+                    disabled={assignPackageMutation.isPending || branchPackages.length === 0}
+                    className="rounded-xl px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-md shadow-emerald-500/20"
+                  >
+                    {assignPackageMutation.isPending
+                      ? 'Đang xử lý...'
+                      : paymentMethod === 'VIETQR'
+                      ? 'Tạo mã VietQR Thanh toán'
+                      : 'Kích hoạt gói tập ngay'}
                   </Button>
                 </div>
               </form>
@@ -991,6 +1163,26 @@ export default function ManagerCustomersPage() {
           customer={detailCustomer}
           branchPackages={branchPackages}
           isFaceIdEnabled={true}
+        />
+      )}
+
+      {/* MODAL 4: VietQR Online Payment Modal */}
+      {pendingQr && (
+        <PendingQrPaymentModal
+          open={!!pendingQr}
+          paymentId={pendingQr.paymentId}
+          qrUrl={pendingQr.qrUrl}
+          amount={pendingQr.amount}
+          expiresAt={pendingQr.expiresAt}
+          onConfirmed={() => {
+            setPendingQr(null);
+            showToast('Thanh toán thành công! Gói tập đã được kích hoạt tự động.', 'success');
+            queryClient.invalidateQueries({ queryKey: ['manager-customers-list'] });
+          }}
+          onCancelled={() => {
+            setPendingQr(null);
+            showToast('Đã hủy thanh toán qua VietQR.', 'info');
+          }}
         />
       )}
       </AnimatePresence>

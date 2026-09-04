@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class ManualCheckinDto {
   @IsString({ message: 'Customer ID không hợp lệ' })
@@ -18,6 +18,38 @@ export class QrScanCheckinDto {
   @IsString({ message: 'Mã QR không hợp lệ' })
   @IsNotEmpty({ message: 'Vui lòng quét hoặc nhập mã QR' })
   token!: string;
+}
+
+/**
+ * Backend/docs/face-checkin.md §2.2 — staff chụp 1-3 ảnh tại quầy, descriptor (128 số/ảnh)
+ * được tính ngay trên trình duyệt bằng @vladmandic/face-api, chỉ gửi descriptor lên (không
+ * gửi ảnh gốc). `descriptors[i].length` phải đúng 128 — validate ở service layer vì
+ * class-validator không có sẵn decorator kiểm tra độ dài mảng lồng gọn gàng.
+ */
+export class EnrollFaceProfileDto {
+  @IsBoolean({ message: 'Cần xác nhận sự đồng ý thu thập dữ liệu khuôn mặt' })
+  consentGiven!: boolean;
+
+  @IsArray({ message: 'Dữ liệu khuôn mặt không hợp lệ' })
+  descriptors!: number[][];
+
+  @IsOptional()
+  @IsArray()
+  qualityScores?: number[];
+}
+
+/** Body kiosk gửi lên sau khi tự nhận diện + so khớp khuôn mặt ngay trên trình duyệt. */
+export class FaceCheckinDto {
+  @IsString({ message: 'Customer ID không hợp lệ' })
+  @IsNotEmpty({ message: 'Không xác định được khách hàng' })
+  customerId!: string;
+
+  @IsNotEmpty({ message: 'Thiếu điểm số khớp khuôn mặt' })
+  matchScore!: number;
+
+  @IsOptional()
+  @IsString()
+  deviceId?: string;
 }
 
 export class UndoCheckinDto {

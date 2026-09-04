@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -95,7 +96,9 @@ function formatDateTime(d?: string | null) {
 }
 
 export default function HistoryPage() {
-  const [tab, setTab] = useState<Tab>('attendance');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'billing' ? 'billing' : 'attendance';
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [weekStart, setWeekStart] = useState(() => mondayIso(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => todayIso());
@@ -158,7 +161,10 @@ export default function HistoryPage() {
             <button
               key={t.key}
               type="button"
-              onClick={() => setTab(t.key)}
+              onClick={() => {
+                setTab(t.key);
+                setSearchParams(t.key === 'billing' ? { tab: 'billing' } : {});
+              }}
               className={`rounded-xl px-4 py-1.5 text-xs font-bold transition ${
                 tab === t.key
                   ? 'bg-white text-emerald-700 shadow-sm dark:bg-zinc-900 dark:text-emerald-400'

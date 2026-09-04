@@ -173,7 +173,7 @@ export default function StaffCheckinPage() {
           Bàn Tiếp Đón & Kiểm Soát Check-in
         </h1>
         <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
-          Tra cứu thông tin hội viên, xác nhận lượt ra/vào và xử lý Hủy lượt check-in nhầm trong 15 phút (BR-STAFF-003).
+          Tra cứu thông tin hội viên, xác nhận lượt ra/vào và xử lý Hủy lượt check-in nhầm trong 15 phút.
         </p>
       </div>
 
@@ -353,7 +353,7 @@ export default function StaffCheckinPage() {
                   <UserCheck size={20} className="text-emerald-600" /> Danh Sách Check-in Gần Đây
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  Hỗ trợ nút Undo Hủy lượt check-in thao tác nhầm trong vòng 15 phút (BR-STAFF-003)
+                  Hỗ trợ nút Undo Hủy lượt check-in thao tác nhầm trong vòng 15 phút
                 </p>
               </div>
               <span className="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
@@ -422,7 +422,7 @@ export default function StaffCheckinPage() {
         <Modal
           open={undoModalOpen}
           onClose={() => setUndoModalOpen(false)}
-          title="Hủy lượt Check-in do thao tác nhầm (BR-STAFF-003)"
+          title="Hủy lượt Check-in do thao tác nhầm"
         >
           <div className="flex flex-col gap-4">
             <Callout tone="warning">

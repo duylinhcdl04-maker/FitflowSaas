@@ -231,7 +231,7 @@ export default function RegisterPage() {
                   }}
                 />
                 <span className="flex shrink-0 items-center bg-stone-100 px-3 text-sm font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                  .fitflow.io.vn
+                  .fitfloww.store
                 </span>
               </div>
               <p className="text-xs text-zinc-400">Đang chạy local — đây sẽ là địa chỉ đăng nhập khi có tên miền riêng.</p>

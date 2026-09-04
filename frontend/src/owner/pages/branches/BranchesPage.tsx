@@ -13,6 +13,7 @@ import EmptyState from '../../components/EmptyState';
 import Modal from '../../components/Modal';
 import FormField, { inputClass } from '../../components/FormField';
 import { Skeleton } from '../../components/Skeleton';
+import OperatingHoursPicker from '../../components/OperatingHoursPicker';
 
 // OW-11. Owner quản lý toàn bộ Chi nhánh thuộc Tenant, có kiểm tra MAX_BRANCHES
 // (server tự chặn — xem owner-branches.service.ts#assertQuotaNotExceeded).
@@ -24,7 +25,14 @@ export default function BranchesPage() {
     queryFn: listUnassignedBranchManagers,
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', address: '', phone: '' });
+  const [form, setForm] = useState({
+    name: '',
+    address: '',
+    phone: '',
+    openingDays: 'Thứ 2 - Chủ nhật',
+    openingTime: '05:00',
+    closingTime: '22:00',
+  });
   const [managerIds, setManagerIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,11 +42,21 @@ export default function BranchesPage() {
         name: form.name,
         address: form.address || undefined,
         phone: form.phone || undefined,
+        openingDays: form.openingDays,
+        openingTime: form.openingTime,
+        closingTime: form.closingTime,
         managerIds: managerIds.length > 0 ? managerIds : undefined,
       }),
     onSuccess: () => {
       setShowCreate(false);
-      setForm({ name: '', address: '', phone: '' });
+      setForm({
+        name: '',
+        address: '',
+        phone: '',
+        openingDays: 'Thứ 2 - Chủ nhật',
+        openingTime: '05:00',
+        closingTime: '22:00',
+      });
       setManagerIds([]);
       queryClient.invalidateQueries({ queryKey: ['owner-branches'] });
       queryClient.invalidateQueries({ queryKey: ['owner-branch-managers-unassigned'] });
@@ -140,6 +158,12 @@ export default function BranchesPage() {
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
             />
           </FormField>
+
+          <OperatingHoursPicker
+            openingTime={form.openingTime}
+            closingTime={form.closingTime}
+            onChange={(open, close) => setForm((f) => ({ ...f, openingTime: open, closingTime: close }))}
+          />
 
           {unassignedManagers && unassignedManagers.length > 0 && (
             <FormField label="Gán Quản lý chi nhánh" htmlFor="new-branch-managers" hint="Chỉ hiện các quản lý chưa được giao chi nhánh">
