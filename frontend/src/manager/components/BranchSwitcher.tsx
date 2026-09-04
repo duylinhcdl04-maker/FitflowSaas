@@ -8,6 +8,7 @@ import {
   MapPin,
   Building,
 } from '@phosphor-icons/react';
+import { useSearchParams } from 'react-router-dom';
 import { getAvailableBranches, type AvailableBranch } from '../api/manager';
 import { useAuthStore } from '../../owner/store/auth-store';
 import { joinBranch } from '../../lib/socket';
@@ -16,6 +17,7 @@ interface BranchSwitcherProps {
   currentBranch?: {
     id: string;
     name: string;
+    code?: string;
   };
   variant?: 'badge' | 'pill';
   className?: string;
@@ -30,6 +32,8 @@ export default function BranchSwitcher({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const [searchParams] = useSearchParams();
+  const branchParam = searchParams.get('branch');
 
   const isOwner = user?.roles?.includes('OWNER');
 
@@ -43,10 +47,40 @@ export default function BranchSwitcher({
 
   // Active branch id from localStorage or currentBranch prop
   const activeBranchId = currentBranch?.id || localStorage.getItem('fitflow_active_branch_id');
-  const activeBranchName =
-    branches.find((b) => b.id === activeBranchId)?.name ||
-    currentBranch?.name ||
-    'Đang tải chi nhánh...';
+  const activeBranchObj =
+    branches.find((b) => b.id === activeBranchId) ||
+    (currentBranch ? { id: currentBranch.id, name: currentBranch.name, code: currentBranch.code || '' } : undefined);
+  const activeBranchName = activeBranchObj?.name || 'Đang tải chi nhánh...';
+
+  // Sync URL query param `?branch=<code>` with active branch and vice versa
+  useEffect(() => {
+    if (!branches.length) return;
+
+    if (branchParam) {
+      const matched = branches.find(
+        (b) =>
+          b.code?.toLowerCase() === branchParam.toLowerCase() ||
+          b.id.toLowerCase() === branchParam.toLowerCase(),
+      );
+      if (matched && matched.id !== activeBranchId) {
+        localStorage.setItem('fitflow_active_branch_id', matched.id);
+        joinBranch(matched.id);
+        queryClient.invalidateQueries();
+        window.dispatchEvent(new CustomEvent('fitflow:branch-changed', { detail: { branchId: matched.id } }));
+        return;
+      }
+    }
+
+    // If no branch in URL but activeBranchObj is resolved, reflect branch code in URL query cleanly
+    if (activeBranchObj?.code) {
+      const cleanCode = activeBranchObj.code.toLowerCase();
+      const currentUrl = new URL(window.location.href);
+      if (currentUrl.searchParams.get('branch') !== cleanCode) {
+        currentUrl.searchParams.set('branch', cleanCode);
+        window.history.replaceState(null, '', currentUrl.toString());
+      }
+    }
+  }, [branches, branchParam, activeBranchId, activeBranchObj?.code]);
 
   // Close on outside click
   useEffect(() => {
@@ -82,6 +116,12 @@ export default function BranchSwitcher({
 
     // Save to localStorage so apiClient interceptor picks it up immediately
     localStorage.setItem('fitflow_active_branch_id', branch.id);
+
+    // Update URL query string with branch code
+    const cleanCode = (branch.code || branch.id).toLowerCase();
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('branch', cleanCode);
+    window.history.replaceState(null, '', currentUrl.toString());
 
     // Join new socket branch room for real-time check-in updates
     joinBranch(branch.id);

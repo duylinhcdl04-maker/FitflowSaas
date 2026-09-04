@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   SignOut,
@@ -103,6 +103,18 @@ export default function StaffShell() {
     queryKey: ['staff-context', activeBranchId],
     queryFn: () => getManagerContext(activeBranchId || undefined),
   });
+
+  const [searchParams] = useSearchParams();
+  const branchParam = searchParams.get('branch');
+  const activeBranchCode = (context?.branch?.code || branchParam || '').toLowerCase();
+  const branchQuery = activeBranchCode ? `?branch=${activeBranchCode}` : '';
+
+  // Dynamic Browser Tab Title with active branch
+  useEffect(() => {
+    if (context?.branch?.name) {
+      document.title = `[${context.branch.name}] FitFlow Staff`;
+    }
+  }, [context?.branch?.name]);
 
   // Join this branch's realtime room as soon as we know it
   useEffect(() => {
@@ -305,7 +317,7 @@ export default function StaffShell() {
               return (
                 <NavLink
                   key={item.to}
-                  to={item.to}
+                  to={`${item.to}${branchQuery}`}
                   end={item.end}
                   className={({ isActive }) =>
                     `flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition-all ${

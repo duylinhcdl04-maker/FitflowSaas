@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   MagnifyingGlass,
   SignOut,
@@ -47,6 +47,10 @@ export default function ManagerTopNav({
   const { theme, toggle } = useThemeStore();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+
+  const [searchParams] = useSearchParams();
+  const branchCode = (branch?.code || searchParams.get('branch') || '').toLowerCase();
+  const branchQuery = branchCode ? `?branch=${branchCode}` : '';
 
   async function handleLogout() {
     try {
@@ -100,7 +104,7 @@ export default function ManagerTopNav({
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
-                to={item.to}
+                to={`${item.to}${branchQuery}`}
                 end={item.end}
                 className={({ isActive }) =>
                   `px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${
