@@ -59,13 +59,7 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Requested-With',
-      'Accept',
-      'Origin',
-    ],
+    exposedHeaders: ['Set-Cookie'],
   });
 
   const apiPrefix = (process.env.API_PREFIX || '/api/v1').replace(/^\//, '');
