@@ -23,22 +23,34 @@ export class AutoCheckoutSchedulerService {
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async sweep() {
-    const due = await this.prisma.attendances.findMany({
-      where: { status: 'CHECKED_IN', auto_checkout_at: { lte: new Date() } },
-      select: { id: true },
-      take: SWEEP_BATCH_LIMIT,
-    });
+    try {
+      const due = await this.prisma.attendances.findMany({
+        where: { status: 'CHECKED_IN', auto_checkout_at: { lte: new Date() } },
+        select: { id: true },
+        take: SWEEP_BATCH_LIMIT,
+      });
 
-    if (due.length === 0) return;
+      if (due.length === 0) return;
 
-    this.logger.log(`Auto-checkout sweep: closing out ${due.length} overdue check-in(s)`);
+      this.logger.log(
+        `Auto-checkout sweep: closing out ${due.length} overdue check-in(s)`,
+      );
 
-    for (const { id } of due) {
-      try {
-        await this.managerService.autoCheckoutAttendance(id);
-      } catch (err) {
-        this.logger.error(`Auto-checkout failed for attendance ${id}`, err as Error);
+      for (const { id } of due) {
+        try {
+          await this.managerService.autoCheckoutAttendance(id);
+        } catch (err) {
+          this.logger.error(
+            `Auto-checkout failed for attendance ${id}`,
+            err as Error,
+          );
+        }
       }
+    } catch (err) {
+      // Neon serverless cold start / scale-to-zero có thể gây P1001 tạm thời trong vài giây
+      this.logger.warn(
+        `[AutoCheckout] Bỏ qua lượt quét do chưa kết nối được DB (Neon cold start): ${(err as Error).message}`,
+      );
     }
   }
 }
