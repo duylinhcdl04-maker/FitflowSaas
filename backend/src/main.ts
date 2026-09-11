@@ -47,10 +47,18 @@ async function bootstrap() {
       if (isLocalhost || isFitflowDomain || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error(`Blocked by CORS: ${origin}`));
+        callback(null, false);
       }
     },
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+    ],
   });
 
   const apiPrefix = (process.env.API_PREFIX || '/api/v1').replace(/^\//, '');

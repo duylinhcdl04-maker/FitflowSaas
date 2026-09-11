@@ -36,6 +36,7 @@ interface EmailLayoutOptions {
 export class MailService {
   private readonly logger = new Logger(MailService.name);
   private transporter: Transporter | null = null;
+  private isPort465 = false;
 
   private getTransporter(): Transporter | null {
     if (this.transporter) return this.transporter;
@@ -50,13 +51,116 @@ export class MailService {
       return null;
     }
 
+    const host = process.env.SMTP_HOST;
+    let port = Number(process.env.SMTP_PORT);
+    let secure = process.env.SMTP_SECURE === 'true';
+
+    // Gmail trên cloud (Railway, AWS, VPS) ưu tiên cổng 465 (direct SSL) vì cổng 587 hay bị firewall/proxy chặn hoặc timeout
+    if (host.includes('gmail.com')) {
+      if (port === 465 || !port || process.env.SMTP_SECURE === 'true') {
+        port = 465;
+        secure = true;
+        this.isPort465 = true;
+      }
+    } else if (!port) {
+      port = 587;
+    }
+
     this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
+      host,
+      port,
+      secure,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 12000,
     });
     return this.transporter;
+  }
+
+  /**
+   * Phương thức gửi email an toàn, hỗ trợ tự động fallback sang cổng 465 (SSL)
+   * nếu cổng 587 (STARTTLS) bị nhà mạng / hạ tầng cloud (Railway, AWS) chặn.
+   */
+  private async deliverEmail(
+    to: string,
+    subject: string,
+    html: string,
+    devCodeFallback?: string,
+  ): Promise<boolean> {
+    const transporter = this.getTransporter();
+    if (!transporter) {
+      if (process.env.NODE_ENV !== 'production' && devCodeFallback) {
+        this.logger.warn(`[DEV] Mã OTP cho ${to}: ${devCodeFallback}`);
+      }
+      return false;
+    }
+
+    const rawFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
+    const from =
+      rawFrom && rawFrom.includes('@')
+        ? rawFrom
+        : `"FitFlow" <${process.env.SMTP_USER}>`;
+
+    try {
+      await transporter.sendMail({
+        from,
+        to,
+        subject,
+        html,
+      });
+      this.logger.log(`[EMAIL SUCCESS] Đã gửi thư tới ${to} | ${subject}`);
+      return true;
+    } catch (err) {
+      const errorMsg = (err as Error).message;
+      this.logger.error(`[EMAIL ERROR] Gửi thư tới ${to} thất bại: ${errorMsg}`);
+
+      // Nếu chạy trên Gmail và đang dùng port 587 bị timeout/chặn kết nối, tự động chuyển sang port 465 SSL
+      const host = process.env.SMTP_HOST || '';
+      if (host.includes('gmail.com') && !this.isPort465) {
+        this.logger.warn(
+          `[EMAIL] Đang thử lại gửi qua Gmail port 465 (Direct SSL)...`,
+        );
+        try {
+          const fallbackTransporter = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
+            auth: {
+              user: process.env.SMTP_USER,
+              pass: process.env.SMTP_PASSWORD,
+            },
+            connectionTimeout: 8000,
+            greetingTimeout: 8000,
+            socketTimeout: 12000,
+          });
+
+          await fallbackTransporter.sendMail({
+            from,
+            to,
+            subject,
+            html,
+          });
+
+          this.logger.log(
+            `[EMAIL SUCCESS] Gửi thành công qua cổng 465 SSL tới ${to}!`,
+          );
+          // Ghi nhớ transporter 465 cho các lần gửi tiếp theo
+          this.transporter = fallbackTransporter;
+          this.isPort465 = true;
+          return true;
+        } catch (fallbackErr) {
+          this.logger.error(
+            `[EMAIL ERROR] Thử lại cổng 465 cũng thất bại: ${(fallbackErr as Error).message}`,
+          );
+        }
+      }
+
+      if (process.env.NODE_ENV !== 'production' && devCodeFallback) {
+        this.logger.warn(`[DEV] Mã OTP cho ${to}: ${devCodeFallback}`);
+      }
+      return false;
+    }
   }
 
   /**
@@ -282,29 +386,7 @@ export class MailService {
       securityNoticeHtml,
     });
 
-    const transporter = this.getTransporter();
-    if (!transporter) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(`[DEV] OTP cho ${to} (${purpose}): ${code}`);
-      }
-      return;
-    }
-
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Gửi email OTP tới ${to} thất bại: ${(err as Error).message}`,
-      );
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(`[DEV] OTP cho ${to} (${purpose}): ${code}`);
-      }
-    }
+    await this.deliverEmail(to, subject, html, code);
   }
 
   /** OW-04b — BR-INVITE-01: nhân sự tự đặt mật khẩu qua link, Owner không đặt hộ. */
@@ -339,29 +421,7 @@ export class MailService {
       `,
     });
 
-    const transporter = this.getTransporter();
-    if (!transporter) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(`[DEV] Invitation link cho ${to}: ${acceptUrl}`);
-      }
-      return;
-    }
-
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Gửi email mời tới ${to} thất bại: ${(err as Error).message}`,
-      );
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(`[DEV] Invitation link cho ${to}: ${acceptUrl}`);
-      }
-    }
+    await this.deliverEmail(to, subject, html, acceptUrl);
   }
 
   /**
@@ -419,33 +479,7 @@ export class MailService {
       `,
     });
 
-    const transporter = this.getTransporter();
-    if (!transporter) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Tài khoản cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-      return;
-    }
-
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Gửi email tài khoản tới ${to} thất bại: ${(err as Error).message}`,
-      );
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Tài khoản cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-    }
+    await this.deliverEmail(to, subject, html, temporaryPassword);
   }
 
   async sendStaffAccountCredentialsEmail(
@@ -501,33 +535,7 @@ export class MailService {
       `,
     });
 
-    const transporter = this.getTransporter();
-    if (!transporter) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Email gửi tài khoản ${roleTitle} cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-      return;
-    }
-
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Gửi email tài khoản ${roleTitle} tới ${to} thất bại: ${(err as Error).message}`,
-      );
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Email gửi tài khoản ${roleTitle} cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-    }
+    await this.deliverEmail(to, subject, html, temporaryPassword);
   }
 
   async sendCustomerAccountCredentialsEmail(
@@ -582,33 +590,7 @@ export class MailService {
       `,
     });
 
-    const transporter = this.getTransporter();
-    if (!transporter) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Email gửi tài khoản Hội viên cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-      return;
-    }
-
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Gửi email tài khoản Hội viên tới ${to} thất bại: ${(err as Error).message}`,
-      );
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Email gửi tài khoản Hội viên cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-    }
+    await this.deliverEmail(to, subject, html, temporaryPassword);
   }
 
   async sendCustomerPasswordResetEmail(
@@ -663,33 +645,7 @@ export class MailService {
       `,
     });
 
-    const transporter = this.getTransporter();
-    if (!transporter) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Email cấp lại mật khẩu Hội viên cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-      return;
-    }
-
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html,
-      });
-    } catch (err) {
-      this.logger.error(
-        `Gửi email cấp lại mật khẩu Hội viên tới ${to} thất bại: ${(err as Error).message}`,
-      );
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.warn(
-          `[DEV] Email cấp lại mật khẩu Hội viên cho ${to}: mật khẩu ${temporaryPassword}`,
-        );
-      }
-    }
+    await this.deliverEmail(to, subject, html, temporaryPassword);
   }
 }
 

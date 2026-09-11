@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
@@ -43,6 +44,8 @@ const DEMO_DATA_SETTING_KEY = 'demo_data';
  */
 @Injectable()
 export class OwnerAuthService {
+  private readonly logger = new Logger(OwnerAuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
@@ -589,7 +592,13 @@ export class OwnerAuthService {
       },
     });
 
-    await this.mailService.sendOtpEmail(email, code, purpose);
+    // Gửi email OTP ngầm bất đồng bộ (non-blocking) để API phản hồi tức thì < 50ms cho người dùng,
+    // loại bỏ nguy cơ mạng SMTP chậm gây timeout proxy 502 Bad Gateway trên Railway/Cloudflare.
+    void this.mailService.sendOtpEmail(email, code, purpose).catch((err) => {
+      this.logger.error(
+        `[OTP] Gửi email OTP tới ${email} (${purpose}) thất bại: ${err?.message || err}`,
+      );
+    });
 
     return { expiresAt };
   }
