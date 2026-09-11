@@ -30,6 +30,9 @@ export default function ForgotPasswordModal({
     mutationFn: () => forgotPassword(email),
     onSuccess: (data) => {
       setUserId(data.userId);
+      setCode('');
+      setNewPassword('');
+      setConfirmPassword('');
       setStep(2);
       setError(null);
     },
@@ -130,18 +133,25 @@ export default function ForgotPasswordModal({
             <input
               id="reset-code"
               type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="one-time-code"
               required
               maxLength={6}
               className={`${inputClass} tracking-widest font-mono text-center text-lg`}
-              placeholder="123456"
+              placeholder="------"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, '');
+                setCode(val);
+              }}
             />
           </FormField>
 
           <FormField label="Mật khẩu mới *" htmlFor="reset-new-password">
             <PasswordInput
               id="reset-new-password"
+              autoComplete="new-password"
               required
               placeholder="Tối thiểu 6 ký tự"
               value={newPassword}
@@ -152,6 +162,7 @@ export default function ForgotPasswordModal({
           <FormField label="Xác nhận mật khẩu mới *" htmlFor="reset-confirm-password">
             <PasswordInput
               id="reset-confirm-password"
+              autoComplete="new-password"
               required
               placeholder="Nhập lại mật khẩu mới"
               value={confirmPassword}

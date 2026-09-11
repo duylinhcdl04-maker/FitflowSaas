@@ -943,12 +943,18 @@ function SecurityTab() {
               <input
                 id="sec-otp"
                 type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="one-time-code"
                 required
                 maxLength={6}
                 className={`${inputClass} tracking-widest font-mono text-lg w-48`}
-                placeholder="123456"
+                placeholder="------"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  setCode(val);
+                }}
               />
             </FormField>
 
@@ -956,6 +962,7 @@ function SecurityTab() {
               <FormField label="Mật khẩu mới *" htmlFor="sec-new-password">
                 <PasswordInput
                   id="sec-new-password"
+                  autoComplete="new-password"
                   required
                   placeholder="Tối thiểu 6 ký tự"
                   value={newPassword}
@@ -966,6 +973,7 @@ function SecurityTab() {
               <FormField label="Xác nhận mật khẩu mới *" htmlFor="sec-confirm-password">
                 <PasswordInput
                   id="sec-confirm-password"
+                  autoComplete="new-password"
                   required
                   placeholder="Nhập lại mật khẩu mới"
                   value={confirmPassword}
