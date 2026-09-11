@@ -1,3 +1,10 @@
+import dns from 'node:dns';
+
+// Bắt buộc ưu tiên IPv4 cho toàn bộ runtime Node.js để tránh ENETUNREACH trên Railway / Docker
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
 import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';

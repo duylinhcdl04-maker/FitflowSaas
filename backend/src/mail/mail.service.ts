@@ -1,6 +1,30 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import * as dns from 'node:dns';
+import * as net from 'node:net';
+
+// Monkeypatch nodemailer/lib/shared để ngăn chặn triệt để việc phân giải và chọn địa chỉ IPv6,
+// vốn gây ra lỗi connect ENETUNREACH 2404:... trên môi trường container Linux / Docker / Railway.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const nodemailerShared = require('nodemailer/lib/shared');
+  if (nodemailerShared && nodemailerShared.networkInterfaces) {
+    const filtered: Record<string, any[]> = {};
+    for (const [k, v] of Object.entries(
+      nodemailerShared.networkInterfaces as Record<string, any[]>,
+    )) {
+      if (Array.isArray(v)) {
+        filtered[k] = v.filter(
+          (i) => i.family !== 'IPv6' && i.family !== 6 && i.family !== '6',
+        );
+      }
+    }
+    nodemailerShared.networkInterfaces = filtered;
+  }
+} catch (e) {
+  // Bỏ qua nếu môi trường không cho phép monkeypatch
+}
 
 interface EmailLayoutOptions {
   title: string;
@@ -35,11 +59,37 @@ interface EmailLayoutOptions {
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private transporter: Transporter | null = null;
-  private isPort465 = false;
 
-  private getTransporter(): Transporter | null {
-    if (this.transporter) return this.transporter;
+  /**
+   * Phân giải hostname sang địa chỉ IPv4 trực tiếp để ngăn chặn triệt để lỗi ENETUNREACH trên
+   * hạ tầng container Linux / Docker / Railway vốn không có định tuyến IPv6 ra ngoài internet.
+   */
+  private async resolveToIpv4(
+    host: string,
+  ): Promise<{ connectHost: string; servername?: string }> {
+    if (!host || net.isIP(host)) {
+      return { connectHost: host };
+    }
+
+    try {
+      const ips = await dns.promises.resolve4(host);
+      if (ips && ips.length > 0) {
+        // Chọn ngẫu nhiên 1 địa chỉ IPv4 hợp lệ từ danh sách A records
+        const chosenIp = ips[Math.floor(Math.random() * ips.length)];
+        return { connectHost: chosenIp, servername: host };
+      }
+    } catch (dnsErr) {
+      this.logger.warn(
+        `[DNS] Không thể resolve IPv4 cho ${host} (${(dnsErr as Error).message}), fallback về hostname gốc.`,
+      );
+    }
+    return { connectHost: host, servername: host };
+  }
+
+  private async createTransporter(options?: {
+    port?: number;
+    secure?: boolean;
+  }): Promise<Transporter | null> {
     if (
       !process.env.SMTP_HOST ||
       !process.env.SMTP_USER ||
@@ -51,36 +101,46 @@ export class MailService {
       return null;
     }
 
-    const host = process.env.SMTP_HOST;
-    let port = Number(process.env.SMTP_PORT);
-    let secure = process.env.SMTP_SECURE === 'true';
+    const rawHost = process.env.SMTP_HOST;
+    const isGmail = rawHost.includes('gmail.com');
+
+    let port = options?.port ?? Number(process.env.SMTP_PORT);
+    let secure = options?.secure ?? (process.env.SMTP_SECURE === 'true');
 
     // Gmail trên cloud (Railway, AWS, VPS) ưu tiên cổng 465 (direct SSL) vì cổng 587 hay bị firewall/proxy chặn hoặc timeout
-    if (host.includes('gmail.com')) {
-      if (port === 465 || !port || process.env.SMTP_SECURE === 'true') {
+    if (isGmail) {
+      if (
+        options?.port === 465 ||
+        port === 465 ||
+        !port ||
+        process.env.SMTP_SECURE === 'true'
+      ) {
         port = 465;
         secure = true;
-        this.isPort465 = true;
       }
     } else if (!port) {
       port = 587;
     }
 
-    this.transporter = nodemailer.createTransport({
-      host,
+    // Luôn phân giải hostname sang địa chỉ IPv4
+    const { connectHost, servername } = await this.resolveToIpv4(rawHost);
+
+    return nodemailer.createTransport({
+      host: connectHost,
       port,
       secure,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
+      tls: servername ? { servername } : undefined,
       connectionTimeout: 8000,
       greetingTimeout: 8000,
       socketTimeout: 12000,
-    });
-    return this.transporter;
+    } as any);
   }
 
   /**
    * Phương thức gửi email an toàn, hỗ trợ tự động fallback sang cổng 465 (SSL)
    * nếu cổng 587 (STARTTLS) bị nhà mạng / hạ tầng cloud (Railway, AWS) chặn.
+   * Đồng thời luôn ép kết nối qua IPv4 để triệt tiêu lỗi ENETUNREACH.
    */
   private async deliverEmail(
     to: string,
@@ -88,19 +148,19 @@ export class MailService {
     html: string,
     devCodeFallback?: string,
   ): Promise<boolean> {
-    const transporter = this.getTransporter();
+    const rawFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
+    const from =
+      rawFrom && rawFrom.includes('@')
+        ? rawFrom
+        : `"FitFlow" <${process.env.SMTP_USER}>`;
+
+    const transporter = await this.createTransporter();
     if (!transporter) {
       if (process.env.NODE_ENV !== 'production' && devCodeFallback) {
         this.logger.warn(`[DEV] Mã OTP cho ${to}: ${devCodeFallback}`);
       }
       return false;
     }
-
-    const rawFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
-    const from =
-      rawFrom && rawFrom.includes('@')
-        ? rawFrom
-        : `"FitFlow" <${process.env.SMTP_USER}>`;
 
     try {
       await transporter.sendMail({
@@ -115,40 +175,31 @@ export class MailService {
       const errorMsg = (err as Error).message;
       this.logger.error(`[EMAIL ERROR] Gửi thư tới ${to} thất bại: ${errorMsg}`);
 
-      // Nếu chạy trên Gmail và đang dùng port 587 bị timeout/chặn kết nối, tự động chuyển sang port 465 SSL
+      // Nếu chạy trên Gmail và lần 1 bị lỗi (ví dụ port 587 bị timeout/chặn kết nối), tự động chuyển sang port 465 SSL với IPv4
       const host = process.env.SMTP_HOST || '';
-      if (host.includes('gmail.com') && !this.isPort465) {
+      if (host.includes('gmail.com')) {
         this.logger.warn(
-          `[EMAIL] Đang thử lại gửi qua Gmail port 465 (Direct SSL)...`,
+          `[EMAIL] Đang thử lại gửi qua Gmail port 465 (Direct SSL + IPv4)...`,
         );
         try {
-          const fallbackTransporter = nodemailer.createTransport({
-            host: 'smtp.gmail.com',
+          const fallbackTransporter = await this.createTransporter({
             port: 465,
             secure: true,
-            auth: {
-              user: process.env.SMTP_USER,
-              pass: process.env.SMTP_PASSWORD,
-            },
-            connectionTimeout: 8000,
-            greetingTimeout: 8000,
-            socketTimeout: 12000,
           });
 
-          await fallbackTransporter.sendMail({
-            from,
-            to,
-            subject,
-            html,
-          });
+          if (fallbackTransporter) {
+            await fallbackTransporter.sendMail({
+              from,
+              to,
+              subject,
+              html,
+            });
 
-          this.logger.log(
-            `[EMAIL SUCCESS] Gửi thành công qua cổng 465 SSL tới ${to}!`,
-          );
-          // Ghi nhớ transporter 465 cho các lần gửi tiếp theo
-          this.transporter = fallbackTransporter;
-          this.isPort465 = true;
-          return true;
+            this.logger.log(
+              `[EMAIL SUCCESS] Gửi thành công qua cổng 465 SSL tới ${to}!`,
+            );
+            return true;
+          }
         } catch (fallbackErr) {
           this.logger.error(
             `[EMAIL ERROR] Thử lại cổng 465 cũng thất bại: ${(fallbackErr as Error).message}`,
