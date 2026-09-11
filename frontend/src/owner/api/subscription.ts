@@ -18,6 +18,9 @@ export interface PublicPlan {
   code: string;
   name: string;
   description: string | null;
+  slogan?: string | null;
+  badge_text?: string | null;
+  is_popular?: boolean;
   price: string;
   currency: string;
   billingCycle: string;
@@ -39,8 +42,46 @@ export interface SubscriptionInvoice {
   saas_payments: { id: string; status: string; method: string; amount: string; created_at: string }[];
 }
 
+export interface QuotaUsageItem {
+  code: string;
+  name: string;
+  unit: string;
+  module: string;
+  mode: 'LIMITED' | 'UNLIMITED' | 'DISABLED';
+  currentValue: number;
+  effectiveLimit: number | null;
+  percentage: number;
+  status: 'NORMAL' | 'WARNING_80' | 'CRITICAL_90' | 'LIMIT_REACHED' | 'DISABLED' | 'UNLIMITED';
+  message?: string;
+}
+
+export interface TenantUsageResponse {
+  subscription: {
+    id: string;
+    status: string;
+    planId: string;
+    planCode: string;
+    planName: string;
+    startDate: string;
+    endDate: string;
+    isTrial: boolean;
+    trialEndsAt: string | null;
+    billingCycle: string;
+    supportTier: string;
+  };
+  usages: QuotaUsageItem[];
+}
+
 export function getCurrentSubscription() {
   return apiClient.get<CurrentSubscription>('/owner/subscription').then((res) => res.data);
+}
+
+export function getTenantUsageOverview() {
+  return apiClient.get<TenantUsageResponse>('/owner/subscription/usage').then((res) => res.data);
+}
+
+export function getEffectiveEntitlements() {
+  return apiClient.get('/owner/subscription/entitlements').then((res) => res.data);
 }
 
 export function listPublicPlans() {

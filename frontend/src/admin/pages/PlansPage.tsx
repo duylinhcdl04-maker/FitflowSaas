@@ -1,544 +1,437 @@
-import { useState } from 'react';
-import type { FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Plus, Stack } from '@phosphor-icons/react';
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  applyPlanToSubscriptions,
-  createFeature,
-  createPlan,
-  listFeatures,
-  listPlanSubscribers,
+  Plus,
+  Sparkle,
+  Gauge,
+  ArrowsLeftRight,
+  Package,
+  CheckCircle,
+  XCircle,
+  Info,
+} from '@phosphor-icons/react';
+import {
   listPlans,
+  listFeatures,
+  getPlatformCatalog,
+  createPlan,
   updatePlan,
   upsertPlanFeatures,
+  createFeature,
+  duplicatePlan,
+  savePlanConfiguration,
+  publishPlan,
+  archivePlan,
+  deletePlan,
   type Plan,
   type PlatformFeature,
+  type PlatformCatalog,
+  type CreatePlanPayload,
 } from '../api/plans';
-import { apiErrorMessage } from '../api/client';
-import { monthsLabel, BILLING_CYCLE_MONTH_OPTIONS } from '../lib/billing';
-import StatusBadge from '../components/StatusBadge';
-import Modal from '../components/Modal';
-import Card from '../components/Card';
-import Callout from '../components/Callout';
-import Toggle from '../components/Toggle';
-import EmptyState from '../components/EmptyState';
-import { Skeleton } from '../components/Skeleton';
-import FormField, { inputClass } from '../components/FormField';
-import Button from '../components/Button';
-
-function formatMoney(amount: string, currency: string) {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency }).format(Number(amount));
-}
-
-/** SA-06 "Áp dụng cho doanh nghiệp hiện tại" — explicit opt-in list, never "all". */
-function ApplyToSubscribersModal({ plan, onClose }: { plan: Plan; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const { data: subscribers, isLoading } = useQuery({
-    queryKey: ['plan-subscribers', plan.id],
-    queryFn: () => listPlanSubscribers(plan.id),
-  });
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  const mutation = useMutation({
-    mutationFn: () => applyPlanToSubscriptions(plan.id, Array.from(selected)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['plans'] });
-      onClose();
-    },
-  });
-
-  function toggle(id: string) {
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  return (
-    <Modal
-      title={`Áp dụng gói ${plan.name} cho doanh nghiệp hiện tại`}
-      description="Chọn từng doanh nghiệp để đồng bộ tính năng theo đúng cấu hình hiện tại của gói. Không chọn nghĩa là giữ nguyên snapshot lúc ký — mặc định an toàn."
-      onClose={onClose}
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>
-            Huỷ
-          </Button>
-          <Button variant="primary" disabled={selected.size === 0 || mutation.isPending} onClick={() => mutation.mutate()}>
-            Áp dụng cho {selected.size || ''} doanh nghiệp
-          </Button>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-2">
-        {isLoading && <p className="text-sm text-zinc-400">Đang tải...</p>}
-        {!isLoading && subscribers?.length === 0 && (
-          <p className="text-sm text-zinc-400">Chưa có doanh nghiệp nào dùng gói này.</p>
-        )}
-        {subscribers?.map((sub) => {
-          const isSelected = selected.has(sub.id);
-          return (
-            <label
-              key={sub.id}
-              className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
-                isSelected
-                  ? 'border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-500/10'
-                  : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60'
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => toggle(sub.id)}
-                className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600 dark:border-zinc-600 dark:bg-zinc-800"
-              />
-              <span className="font-medium text-zinc-900 dark:text-zinc-50">{sub.tenants.name}</span>
-              <span className="font-mono text-xs text-zinc-400">{sub.tenants.code}</span>
-            </label>
-          );
-        })}
-      </div>
-    </Modal>
-  );
-}
-
-/**
- * Right-hand panel of the master-detail layout. Mounted fresh (via `key={plan.id}`
- * in the parent) every time the selected plan changes, so `values` below always
- * initialises from the newly selected plan instead of carrying over stale state.
- */
-function PlanFeatureDetail({
-  plan,
-  allFeatures,
-  onToggleStatus,
-  togglingStatus,
-}: {
-  plan: Plan;
-  allFeatures: PlatformFeature[];
-  onToggleStatus: () => void;
-  togglingStatus: boolean;
-}) {
-  const queryClient = useQueryClient();
-  const [showApply, setShowApply] = useState(false);
-
-  const settingByCode = new Map(plan.saas_plan_features.map((f) => [f.platform_features.code, f]));
-  const [values, setValues] = useState<Record<string, { enabled: boolean; quota: string }>>(() => {
-    const initial: Record<string, { enabled: boolean; quota: string }> = {};
-    for (const feature of allFeatures) {
-      const existing = settingByCode.get(feature.code);
-      initial[feature.code] = {
-        enabled: existing?.is_enabled ?? false,
-        quota: existing?.quota_value != null ? String(existing.quota_value) : '',
-      };
-    }
-    return initial;
-  });
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      upsertPlanFeatures(
-        plan.id,
-        Object.entries(values).map(([featureCode, v]) => ({
-          featureCode,
-          isEnabled: v.enabled,
-          quotaValue: v.quota ? Number(v.quota) : undefined,
-        })),
-      ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plans'] }),
-  });
-
-  const enabledCount = Object.values(values).filter((v) => v.enabled).length;
-
-  return (
-    <Card padded={false} className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-100 p-5 dark:border-zinc-800">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h2 className="font-display text-lg font-semibold text-zinc-900 dark:text-zinc-50">{plan.name}</h2>
-            <StatusBadge status={plan.status} />
-          </div>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {Number(plan.price) === 0 ? 'Liên hệ' : formatMoney(plan.price, plan.currency)}
-            {' · '}
-            {plan.trial_days > 0 ? `${plan.trial_days} ngày dùng thử` : monthsLabel(plan.billing_cycle_months)}
-            {' · '}
-            {enabledCount} tính năng bật · {plan._count.subscriptions} Tenant đang dùng
-          </p>
-        </div>
-        <Button variant="secondary" size="sm" onClick={onToggleStatus} disabled={togglingStatus}>
-          {plan.status === 'ACTIVE' ? 'Ngừng bán' : 'Mở bán'}
-        </Button>
-      </div>
-
-      <div className="flex-1 divide-y divide-zinc-100 overflow-y-auto px-5 dark:divide-zinc-800">
-        {allFeatures.length === 0 && (
-          <p className="py-6 text-center text-sm text-zinc-400">Chưa có Platform Feature nào được định nghĩa.</p>
-        )}
-        {allFeatures.map((feature) => {
-          const current = values[feature.code] ?? { enabled: false, quota: '' };
-          return (
-            <div key={feature.code} className="flex items-center justify-between gap-4 py-3.5">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{feature.name}</p>
-                <p className="font-mono text-xs text-zinc-400">{feature.code}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                {feature.feature_type === 'QUOTA' && current.enabled && (
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="Không giới hạn"
-                    className={`${inputClass} w-32 text-right`}
-                    value={current.quota}
-                    onChange={(e) =>
-                      setValues((v) => ({ ...v, [feature.code]: { ...current, quota: e.target.value } }))
-                    }
-                  />
-                )}
-                <Toggle
-                  checked={current.enabled}
-                  onChange={(enabled) => setValues((v) => ({ ...v, [feature.code]: { ...current, enabled } }))}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex shrink-0 flex-col gap-3 border-t border-zinc-100 bg-zinc-50/60 p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
-        {plan._count.subscriptions > 0 && (
-          <Callout tone="warning">
-            Thay đổi ở đây chỉ áp dụng cho thuê bao ký mới. {plan._count.subscriptions} doanh nghiệp hiện tại
-            giữ nguyên điều kiện lúc ký.{' '}
-            <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setShowApply(true)}>
-              Áp dụng cho doanh nghiệp hiện tại…
-            </button>
-          </Callout>
-        )}
-        <div className="flex items-center justify-between gap-3">
-          {mutation.isSuccess && !mutation.isPending && (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-              <Check size={14} weight="bold" />
-              Đã lưu
-            </span>
-          )}
-          <Button className="ml-auto" variant="primary" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
-            {mutation.isPending ? 'Đang lưu...' : 'Lưu tính năng'}
-          </Button>
-        </div>
-      </div>
-
-      {showApply && <ApplyToSubscribersModal plan={plan} onClose={() => setShowApply(false)} />}
-    </Card>
-  );
-}
-
-function CreatePlanModal({ onClose }: { onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState({
-    code: '',
-    name: '',
-    billingCycleMonths: 1,
-    price: '',
-    trialDays: '0',
-  });
-  const [error, setError] = useState<string | null>(null);
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      createPlan({
-        code: form.code,
-        name: form.name,
-        billingCycleMonths: form.billingCycleMonths,
-        price: Number(form.price),
-        trialDays: Number(form.trialDays),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['plans'] });
-      onClose();
-    },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    mutation.mutate();
-  }
-
-  return (
-    <Modal
-      title="Tạo SaaS Plan mới"
-      onClose={onClose}
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>
-            Huỷ
-          </Button>
-          <Button type="submit" form="create-plan-form" variant="primary" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Đang tạo...' : 'Tạo gói'}
-          </Button>
-        </div>
-      }
-    >
-      <form id="create-plan-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <FormField label="Mã gói" htmlFor="code">
-          <input
-            id="code"
-            required
-            placeholder="vd: GROWTH"
-            className={inputClass}
-            value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-          />
-        </FormField>
-        <FormField label="Tên gói" htmlFor="name">
-          <input
-            id="name"
-            required
-            className={inputClass}
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-        </FormField>
-        <FormField label="Giá / kỳ (VND)" htmlFor="price">
-          <input
-            id="price"
-            type="number"
-            min={0}
-            required
-            className={inputClass}
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-          />
-        </FormField>
-        <FormField label="Chu kỳ thanh toán" htmlFor="billingCycleMonths">
-          <select
-            id="billingCycleMonths"
-            className={inputClass}
-            value={form.billingCycleMonths}
-            onChange={(e) => setForm({ ...form, billingCycleMonths: Number(e.target.value) })}
-          >
-            {BILLING_CYCLE_MONTH_OPTIONS.map((m) => (
-              <option key={m} value={m}>
-                {monthsLabel(m)} ({m} tháng/lần)
-              </option>
-            ))}
-          </select>
-        </FormField>
-        <FormField label="Số ngày dùng thử" htmlFor="trialDays">
-          <input
-            id="trialDays"
-            type="number"
-            min={0}
-            className={inputClass}
-            value={form.trialDays}
-            onChange={(e) => setForm({ ...form, trialDays: e.target.value })}
-          />
-        </FormField>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </form>
-    </Modal>
-  );
-}
-
-function CreateFeatureModal({ onClose }: { onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState<{
-    code: string;
-    name: string;
-    featureType: 'BOOLEAN' | 'QUOTA';
-    module: string;
-  }>({ code: '', name: '', featureType: 'BOOLEAN', module: '' });
-  const [error, setError] = useState<string | null>(null);
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      createFeature({
-        code: form.code,
-        name: form.name,
-        featureType: form.featureType,
-        module: form.module || undefined,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['features'] });
-      onClose();
-    },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-
-  return (
-    <Modal
-      title="Tạo Platform Feature mới"
-      onClose={onClose}
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>
-            Huỷ
-          </Button>
-          <Button type="submit" form="create-feature-form" variant="primary" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Đang tạo...' : 'Tạo feature'}
-          </Button>
-        </div>
-      }
-    >
-      <form
-        id="create-feature-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          mutation.mutate();
-        }}
-        className="flex flex-col gap-4"
-      >
-        <FormField label="Mã feature" htmlFor="fcode">
-          <input
-            id="fcode"
-            required
-            placeholder="vd: BULK_EXPORT"
-            className={inputClass}
-            value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-          />
-        </FormField>
-        <FormField label="Tên hiển thị" htmlFor="fname">
-          <input
-            id="fname"
-            required
-            className={inputClass}
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-        </FormField>
-        <FormField label="Loại" htmlFor="ftype">
-          <select
-            id="ftype"
-            className={inputClass}
-            value={form.featureType}
-            onChange={(e) => setForm({ ...form, featureType: e.target.value as 'BOOLEAN' | 'QUOTA' })}
-          >
-            <option value="BOOLEAN">Bật/tắt (BOOLEAN)</option>
-            <option value="QUOTA">Hạn mức (QUOTA)</option>
-          </select>
-        </FormField>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </form>
-    </Modal>
-  );
-}
+import PlanList from './plans/PlanList';
+import PlanDetail from './plans/PlanDetail';
+import FeatureListTab from './plans/FeatureListTab';
+import LimitListTab from './plans/LimitListTab';
+import FeatureMatrixTab from './plans/FeatureMatrixTab';
+import CreatePlanDrawer from './plans/CreatePlanDrawer';
+import CreateFeatureModal from './plans/CreateFeatureModal';
+import CreateVersionModal from './plans/CreateVersionModal';
+import TenantSubscribersModal from './plans/TenantSubscribersModal';
+import type { PlanTab } from './plans/types';
 
 export default function PlansPage() {
   const queryClient = useQueryClient();
-  const { data: plans, isLoading } = useQuery({ queryKey: ['plans'], queryFn: listPlans });
-  const { data: allFeatures } = useQuery({ queryKey: ['features'], queryFn: listFeatures });
-
+  const [activeTab, setActiveTab] = useState<PlanTab>('plans');
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [showCreatePlan, setShowCreatePlan] = useState(false);
-  const [showCreateFeature, setShowCreateFeature] = useState(false);
 
-  const toggleStatusMutation = useMutation({
-    mutationFn: (plan: Plan) =>
-      updatePlan(plan.id, { status: plan.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plans'] }),
+  // Modals / Drawers state
+  const [isCreatePlanOpen, setIsCreatePlanOpen] = useState(false);
+  const [isCreateFeatureOpen, setIsCreateFeatureOpen] = useState(false);
+  const [createFeatureType, setCreateFeatureType] = useState<'BOOLEAN' | 'QUOTA'>('BOOLEAN');
+  const [isCreateVersionOpen, setIsCreateVersionOpen] = useState(false);
+  const [isSubscribersOpen, setIsSubscribersOpen] = useState(false);
+
+  // Toast notifications
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  // Queries
+  const { data: plans = [], isLoading: isPlansLoading } = useQuery({
+    queryKey: ['plans'],
+    queryFn: listPlans,
   });
 
-  // Default to the first plan until the user explicitly picks one — computed
-  // inline (no effect needed) so it stays correct as `plans` loads/refetches.
-  const effectiveSelectedId = selectedPlanId ?? plans?.[0]?.id ?? null;
-  const selectedPlan = plans?.find((p) => p.id === effectiveSelectedId) ?? null;
+  const { data: catalog, isLoading: isCatalogLoading } = useQuery({
+    queryKey: ['platform-catalog'],
+    queryFn: getPlatformCatalog,
+  });
+
+  const { data: features = [], isLoading: isFeaturesLoading } = useQuery({
+    queryKey: ['features'],
+    queryFn: listFeatures,
+  });
+
+  // Selected plan calculation
+  const selectedPlan = useMemo(() => {
+    if (!plans.length) return null;
+    if (selectedPlanId) {
+      const found = plans.find((p) => p.id === selectedPlanId);
+      if (found) return found;
+    }
+    return plans[0];
+  }, [plans, selectedPlanId]);
+
+  // Mutations
+  const createPlanMutation = useMutation({
+    mutationFn: async (payload: {
+      plan: CreatePlanPayload;
+      features: { featureCode: string; isEnabled: boolean; quotaValue?: number | null }[];
+    }) => {
+      const created = await createPlan(payload.plan);
+      if (payload.features.length > 0) {
+        await upsertPlanFeatures(
+          created.id,
+          payload.features.map((f) => ({
+            featureCode: f.featureCode,
+            isEnabled: f.isEnabled,
+            quotaValue: f.quotaValue ?? undefined,
+          }))
+        );
+      }
+      return created;
+    },
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      queryClient.invalidateQueries({ queryKey: ['platform-catalog'] });
+      setSelectedPlanId(created.id);
+      showToast(`Đã tạo thành công gói ${created.name}`);
+    },
+    onError: (err: any) => {
+      showToast(err?.response?.data?.message || 'Không thể tạo gói', 'error');
+    },
+  });
+
+  const savePlanConfigMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      if (!selectedPlan) return;
+      return savePlanConfiguration(selectedPlan.id, payload);
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      queryClient.invalidateQueries({ queryKey: ['platform-catalog'] });
+      showToast(`Đã lưu cấu hình 10 chiều thành công cho gói ${updated?.name || selectedPlan?.name}`);
+    },
+    onError: (err: any) => {
+      showToast(err?.response?.data?.message || 'Không thể lưu cấu hình gói', 'error');
+    },
+  });
+
+  const publishPlanMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPlan) return;
+      return publishPlan(selectedPlan.id);
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      showToast(`Đã xuất bản (Publish) thành công gói ${updated.name}`);
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message || 'Không thể xuất bản gói';
+      const errors = err?.response?.data?.errors;
+      showToast(errors ? `${msg}: ${errors.join('; ')}` : msg, 'error');
+    },
+  });
+
+  const archivePlanMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPlan) return;
+      return archivePlan(selectedPlan.id);
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      showToast(`Đã lưu trữ (Archive) gói ${updated.name}`);
+    },
+    onError: (err: any) => {
+      showToast(err?.response?.data?.message || 'Không thể lưu trữ gói', 'error');
+    },
+  });
+
+  const deletePlanMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPlan) return;
+      return deletePlan(selectedPlan.id);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      setSelectedPlanId(null);
+      showToast(res.message || 'Đã xóa gói thành công');
+    },
+    onError: (err: any) => {
+      showToast(err?.response?.data?.message || 'Không thể xóa gói', 'error');
+    },
+  });
+
+  const duplicatePlanMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPlan) return;
+      return duplicatePlan(selectedPlan.id);
+    },
+    onSuccess: (newPlan) => {
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      setSelectedPlanId(newPlan.id);
+      showToast(`Đã nhân bản thành công gói ${newPlan.name}`);
+    },
+    onError: (err: any) => {
+      showToast(err?.response?.data?.message || 'Không thể nhân bản gói', 'error');
+    },
+  });
+
+  const createFeatureMutation = useMutation({
+    mutationFn: createFeature,
+    onSuccess: (feat) => {
+      queryClient.invalidateQueries({ queryKey: ['features'] });
+      showToast(`Đã tạo thành công tính năng/định mức ${feat.name}`);
+    },
+    onError: (err: any) => {
+      showToast(err?.response?.data?.message || 'Không thể tạo tính năng', 'error');
+    },
+  });
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] min-h-[36rem] flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-            Gói & Tính năng
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Định nghĩa gói thương mại và bật/tắt tính năng theo gói.
-          </p>
+    <div className="flex h-full flex-col overflow-hidden bg-zinc-50/50 dark:bg-zinc-950">
+      {/* Toast notification banner */}
+      {toast && (
+        <div
+          className={`fixed right-6 top-6 z-50 flex items-center gap-2 rounded-xl px-4 py-3 text-xs font-semibold shadow-lg backdrop-blur-md transition-all animate-in fade-in ${
+            toast.type === 'success'
+              ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+              : 'border border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" weight="bold" />
+          ) : (
+            <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" weight="bold" />
+          )}
+          <span>{toast.message}</span>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setShowCreateFeature(true)}>
-            <Plus size={16} weight="bold" />
-            Feature mới
-          </Button>
-          <Button variant="primary" onClick={() => setShowCreatePlan(true)}>
-            <Plus size={16} weight="bold" />
-            Gói mới
-          </Button>
+      )}
+
+      {/* Main Page Header */}
+      <div className="border-b border-zinc-200/80 bg-white px-6 py-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+                <Package className="h-4.5 w-4.5" weight="bold" />
+              </span>
+              <h1 className="font-display text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+                Gói & Tính năng
+              </h1>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              Quản lý các gói SaaS, quyền hạn tính năng, giới hạn định mức tài nguyên và ma trận so sánh.
+            </p>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setCreateFeatureType('BOOLEAN');
+                setIsCreateFeatureOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-2xs transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>+ Feature mới</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCreatePlanOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-500 active:scale-95"
+            >
+              <Plus className="h-3.5 w-3.5" weight="bold" />
+              <span>+ Gói mới</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 4 Main Module Tabs */}
+        <div className="mt-5 flex items-center gap-1 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+          <button
+            type="button"
+            onClick={() => setActiveTab('plans')}
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+              activeTab === 'plans'
+                ? 'bg-emerald-50 text-emerald-700 shadow-2xs dark:bg-emerald-950/60 dark:text-emerald-300'
+                : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <Package className="h-4 w-4" weight={activeTab === 'plans' ? 'bold' : 'regular'} />
+            <span>Gói ({plans.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('features')}
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+              activeTab === 'features'
+                ? 'bg-emerald-50 text-emerald-700 shadow-2xs dark:bg-emerald-950/60 dark:text-emerald-300'
+                : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <Sparkle className="h-4 w-4" weight={activeTab === 'features' ? 'bold' : 'regular'} />
+            <span>Tính năng ({features.filter((f) => f.feature_type !== 'QUOTA').length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('limits')}
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+              activeTab === 'limits'
+                ? 'bg-emerald-50 text-emerald-700 shadow-2xs dark:bg-emerald-950/60 dark:text-emerald-300'
+                : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <Gauge className="h-4 w-4" weight={activeTab === 'limits' ? 'bold' : 'regular'} />
+            <span>Giới hạn ({features.filter((f) => f.feature_type === 'QUOTA').length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('matrix')}
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+              activeTab === 'matrix'
+                ? 'bg-emerald-50 text-emerald-700 shadow-2xs dark:bg-emerald-950/60 dark:text-emerald-300'
+                : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <ArrowsLeftRight className="h-4 w-4" weight={activeTab === 'matrix' ? 'bold' : 'regular'} />
+            <span>So sánh gói</span>
+          </button>
         </div>
       </div>
 
-      {isLoading && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i}>
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="mt-3 h-6 w-28" />
-              <Skeleton className="mt-2 h-3 w-20" />
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {!isLoading && plans?.length === 0 && (
-        <Card>
-          <EmptyState icon={Stack} title="Chưa có SaaS Plan nào" description="Tạo gói thương mại đầu tiên để bắt đầu." />
-        </Card>
-      )}
-
-      {!isLoading && plans && plans.length > 0 && (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
-          <Card padded={false} className="flex flex-col overflow-hidden">
-            <div className="flex flex-col divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800">
-              {plans.map((plan) => {
-                const isSelected = plan.id === effectiveSelectedId;
-                return (
-                  <button
-                    key={plan.id}
-                    type="button"
-                    onClick={() => setSelectedPlanId(plan.id)}
-                    className={`relative flex flex-col items-start gap-1 px-4 py-3.5 text-left transition-colors ${
-                      isSelected
-                        ? 'bg-emerald-50 dark:bg-emerald-500/10'
-                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'
-                    }`}
-                  >
-                    {isSelected && (
-                      <span className="absolute inset-y-1.5 left-0 w-1 rounded-r-full bg-emerald-600 dark:bg-emerald-400" />
-                    )}
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span
-                        className={`text-sm font-medium ${isSelected ? 'text-emerald-800 dark:text-emerald-300' : 'text-zinc-900 dark:text-zinc-50'}`}
-                      >
-                        {plan.name}
-                      </span>
-                      <StatusBadge status={plan.status} />
-                    </div>
-                    <span className="font-mono text-xs text-zinc-400">
-                      {Number(plan.price) === 0 ? 'Liên hệ' : formatMoney(plan.price, plan.currency)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-
-          {selectedPlan && (
-            <PlanFeatureDetail
-              key={selectedPlan.id}
-              plan={selectedPlan}
-              allFeatures={allFeatures ?? []}
-              onToggleStatus={() => toggleStatusMutation.mutate(selectedPlan)}
-              togglingStatus={toggleStatusMutation.isPending}
+      {/* Main Tab Views */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* TAB 1: GÓI (2-Column Layout: Left Plan List, Right Plan Detail) */}
+        {activeTab === 'plans' && (
+          <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
+            <PlanList
+              plans={plans}
+              selectedPlanId={selectedPlan?.id ?? null}
+              onSelectPlan={(id) => setSelectedPlanId(id)}
+              onCreateNewPlan={() => setIsCreatePlanOpen(true)}
+              isLoading={isPlansLoading}
             />
-          )}
-        </div>
-      )}
 
-      {showCreatePlan && <CreatePlanModal onClose={() => setShowCreatePlan(false)} />}
-      {showCreateFeature && <CreateFeatureModal onClose={() => setShowCreateFeature(false)} />}
+            {selectedPlan && catalog ? (
+              <PlanDetail
+                key={selectedPlan.id}
+                plan={selectedPlan}
+                catalog={catalog}
+                onSaveConfig={savePlanConfigMutation.mutateAsync}
+                onPublish={publishPlanMutation.mutateAsync}
+                onArchive={archivePlanMutation.mutateAsync}
+                onDuplicate={() => duplicatePlanMutation.mutate()}
+                onDelete={deletePlanMutation.mutateAsync}
+                onViewSubscribers={() => setIsSubscribersOpen(true)}
+                isSaving={savePlanConfigMutation.isPending}
+              />
+            ) : isCatalogLoading || isPlansLoading ? (
+              <div className="flex flex-1 items-center justify-center p-12 text-center text-xs text-zinc-400">
+                Đang tải cấu hình SaaS Plan...
+              </div>
+            ) : (
+              <div className="flex flex-1 items-center justify-center p-12 text-center text-xs text-zinc-400">
+                Chưa có gói cước nào được chọn.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: TÍNH NĂNG */}
+        {activeTab === 'features' && (
+          <FeatureListTab
+            features={features}
+            plans={plans}
+            onCreateFeature={() => {
+              setCreateFeatureType('BOOLEAN');
+              setIsCreateFeatureOpen(true);
+            }}
+            isLoading={isFeaturesLoading}
+          />
+        )}
+
+        {/* TAB 3: GIỚI HẠN */}
+        {activeTab === 'limits' && (
+          <LimitListTab
+            features={features}
+            plans={plans}
+            onCreateLimit={() => {
+              setCreateFeatureType('QUOTA');
+              setIsCreateFeatureOpen(true);
+            }}
+            isLoading={isFeaturesLoading}
+          />
+        )}
+
+        {/* TAB 4: SO SÁNH GÓI */}
+        {activeTab === 'matrix' && (
+          <FeatureMatrixTab
+            plans={plans}
+            features={features}
+            onSelectPlan={(id) => {
+              setSelectedPlanId(id);
+              setActiveTab('plans');
+            }}
+            isLoading={isPlansLoading || isFeaturesLoading}
+          />
+        )}
+      </div>
+
+      {/* Drawers and Modals */}
+      <CreatePlanDrawer
+        allFeatures={features}
+        isOpen={isCreatePlanOpen}
+        onClose={() => setIsCreatePlanOpen(false)}
+        onSubmit={createPlanMutation.mutateAsync}
+        isSubmitting={createPlanMutation.isPending}
+      />
+
+      <CreateFeatureModal
+        isOpen={isCreateFeatureOpen}
+        onClose={() => setIsCreateFeatureOpen(false)}
+        onSubmit={createFeatureMutation.mutateAsync}
+        isSubmitting={createFeatureMutation.isPending}
+        initialType={createFeatureType}
+      />
+
+      {selectedPlan && (
+        <>
+          <CreateVersionModal
+            plan={selectedPlan}
+            isOpen={isCreateVersionOpen}
+            onClose={() => setIsCreateVersionOpen(false)}
+            onSubmit={async (vData) => {
+              showToast(`Đã tạo thành công phiên bản ${vData.versionName} cho gói ${selectedPlan.name}`);
+            }}
+          />
+
+          <TenantSubscribersModal
+            plan={selectedPlan}
+            isOpen={isSubscribersOpen}
+            onClose={() => setIsSubscribersOpen(false)}
+          />
+        </>
+      )}
     </div>
   );
 }

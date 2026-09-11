@@ -17,6 +17,7 @@ import NotificationBell from '../../owner/components/NotificationBell';
 import PortalSwitcher from '../../owner/components/PortalSwitcher';
 import MobileNavDrawer from './MobileNavDrawer';
 import BranchSwitcher from './BranchSwitcher';
+import NetworkStatusBadge from '../../components/NetworkStatusBadge';
 
 interface ManagerTopNavProps {
   onOpenQuickSearch: () => void;
@@ -134,6 +135,9 @@ export default function ManagerTopNav({
               <span>Về Quản lý chuỗi</span>
             </button>
           )}
+
+          {/* Network Status Badge */}
+          <NetworkStatusBadge />
 
           {/* Portal Switcher Dropdown */}
           <PortalSwitcher variant="compact" />

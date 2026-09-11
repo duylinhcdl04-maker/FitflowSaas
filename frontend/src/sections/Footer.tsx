@@ -1,3 +1,4 @@
+import { Lightning } from '@phosphor-icons/react'
 import Container from '../components/Container'
 
 const columns = [
@@ -27,13 +28,13 @@ const columns = [
 
 export default function Footer() {
   return (
-    <footer id="lien-he" className="border-t border-zinc-200 py-16 dark:border-zinc-800">
+    <footer id="lien-he" className="border-t border-zinc-200 py-16 dark:border-white/10">
       <Container>
         <div className="grid gap-10 lg:grid-cols-[2fr_1fr_1fr_1fr]">
           <div>
-            <a href="#" className="font-display flex items-center gap-2 text-lg font-bold text-zinc-900 dark:text-zinc-50">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-700 text-sm text-white dark:bg-emerald-400 dark:text-zinc-950">
-                F
+            <a href="#" className="font-display flex items-center gap-2.5 text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500 text-zinc-950 shadow-[0_4px_16px_-4px_rgba(16,185,129,0.6)]">
+                <Lightning size={18} weight="fill" />
               </span>
               FitFlow
             </a>
@@ -71,7 +72,7 @@ export default function Footer() {
           ))}
         </div>
 
-        <div className="mt-12 border-t border-zinc-200 pt-8 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+        <div className="mt-12 border-t border-zinc-200 pt-8 text-sm text-zinc-500 dark:border-white/10 dark:text-zinc-400">
           © {new Date().getFullYear()} FitFlow. Đã đăng ký bản quyền.
         </div>
       </Container>

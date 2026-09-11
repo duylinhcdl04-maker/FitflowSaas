@@ -90,15 +90,15 @@ export default function VerifyOtpPage() {
 
   return (
     <AuthLayout>
-      <Card className="w-full max-w-sm text-center">
-        <h1 className="font-display text-xl font-bold text-zinc-900 dark:text-zinc-50">Xác thực tài khoản</h1>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Chúng tôi đã gửi mã xác nhận đến <span className="font-medium text-zinc-700 dark:text-zinc-300">{state.email}</span>
+      <Card className="w-full max-w-md text-center">
+        <h1 className="font-['Be_Vietnam_Pro',sans-serif] text-2xl font-black text-white">Xác thực tài khoản</h1>
+        <p className="mt-2 text-sm font-['Plus_Jakarta_Sans',sans-serif] text-[#A7A1AD]">
+          Chúng tôi đã gửi mã xác thực 6 số đến <span className="font-semibold text-purple-300">{state.email}</span>
         </p>
 
-        {resendMessage && <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-400">{resendMessage}</p>}
+        {resendMessage && <p className="mt-3 text-sm text-emerald-400 font-medium">{resendMessage}</p>}
 
-        <div className="mt-6 flex justify-center gap-2">
+        <div className="mt-8 flex justify-center gap-2.5">
           {digits.map((d, i) => (
             <input
               key={i}
@@ -110,29 +110,29 @@ export default function VerifyOtpPage() {
               onKeyDown={(e) => handleKeyDown(i, e)}
               inputMode="numeric"
               maxLength={1}
-              className="h-12 w-10 rounded-2xl border border-stone-300 text-center text-lg font-semibold text-zinc-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              className="h-14 w-12 rounded-xl border border-white/10 bg-[#151119] text-center font-['JetBrains_Mono'] text-2xl font-bold text-white focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/30"
             />
           ))}
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="mt-4 text-sm text-rose-400 font-medium">{error}</p>}
 
         <Button
-          className="mt-6 w-full justify-center"
+          className="mt-8 w-full justify-center"
           size="lg"
           disabled={verifyMutation.isPending || digits.some((d) => !d)}
           onClick={() => verifyMutation.mutate(digits.join(''))}
         >
-          {verifyMutation.isPending ? 'Đang xác nhận...' : 'Xác nhận'}
+          {verifyMutation.isPending ? 'Đang xác nhận...' : 'Xác thực tài khoản'}
         </Button>
 
         <button
           type="button"
           disabled={cooldown > 0 || resendMutation.isPending}
           onClick={() => resendMutation.mutate()}
-          className="mt-4 text-sm font-medium text-emerald-700 disabled:text-zinc-400 dark:text-emerald-400 dark:disabled:text-zinc-600"
+          className="mt-6 text-sm font-bold text-purple-400 hover:text-purple-300 disabled:text-[#6F6877] transition-colors"
         >
-          {cooldown > 0 ? `Gửi lại mã sau ${cooldown}s` : 'Gửi lại mã'}
+          {cooldown > 0 ? `Gửi lại mã sau ${cooldown}s` : 'Gửi lại mã xác nhận'}
         </button>
       </Card>
     </AuthLayout>

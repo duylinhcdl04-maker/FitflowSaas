@@ -505,3 +505,33 @@ export function assignPtPackage(customerId: string, planId: string, startDate?: 
     })
     .then((res) => res.data);
 }
+
+export function getOfflineMembersCache(branchId?: string) {
+  return apiClient
+    .get<{
+      branchId: string;
+      cachedAt: string;
+      total: number;
+      members: any[];
+    }>('/manager/checkin/offline-members-cache', { params: { branchId } })
+    .then((res) => res.data);
+}
+
+export function syncOfflineBatchCheckin(items: Array<{
+  clientAttendanceId: string;
+  customerId: string;
+  branchId?: string;
+  checkInAt: string;
+  attendanceType?: string;
+  method?: string;
+  membershipId?: string;
+  note?: string;
+}>) {
+  return apiClient
+    .post<{
+      syncedCount: number;
+      successIds: string[];
+      conflicts: Array<{ id: string; customerId: string; reason: string }>;
+    }>('/manager/checkin/offline-batch-sync', { items })
+    .then((res) => res.data);
+}

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle } from '@phosphor-icons/react';
 import {
   getCurrentSubscription,
+  getTenantUsageOverview,
   listPublicPlans,
   listSubscriptionInvoices,
   markInvoiceTransferred,
@@ -14,6 +15,7 @@ import Card from '../../components/Card';
 import Button from '../../components/Button';
 import Callout from '../../components/Callout';
 import { Skeleton } from '../../components/Skeleton';
+import { Warning, WarningCircle, ArrowUpRight } from '@phosphor-icons/react';
 
 const STATUS_LABELS: Record<string, string> = {
   TRIAL: 'Dùng thử',
@@ -23,8 +25,6 @@ const STATUS_LABELS: Record<string, string> = {
   EXPIRED: 'Đã hết hạn',
   CANCELLED: 'Đã huỷ',
 };
-
-const USAGE_LABELS: Record<string, string> = { MAX_BRANCHES: 'Chi nhánh', MAX_STAFF: 'Nhân sự' };
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Nháp',
@@ -41,14 +41,15 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('vi-VN');
 }
 
-// OW-07/OW-08. Không có cổng thanh toán thật — Owner chọn gói, hệ thống phát
-// hành hoá đơn + hướng dẫn chuyển khoản, Owner tự khai đã chuyển, và
-// SuperAdmin xác nhận thủ công (SA-10) mới thực sự kích hoạt Subscription.
 export default function SubscriptionPage() {
   const queryClient = useQueryClient();
   const { data: current, isLoading: loadingCurrent } = useQuery({
     queryKey: ['owner-subscription'],
     queryFn: getCurrentSubscription,
+  });
+  const { data: usageOverview } = useQuery({
+    queryKey: ['owner-tenant-usage'],
+    queryFn: getTenantUsageOverview,
   });
   const { data: plans, isLoading: loadingPlans } = useQuery({ queryKey: ['owner-subscription-plans'], queryFn: listPublicPlans });
   const { data: invoices } = useQuery({ queryKey: ['owner-subscription-invoices'], queryFn: listSubscriptionInvoices });
@@ -109,23 +110,114 @@ export default function SubscriptionPage() {
           {current.daysUntilRenewal !== null && (
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Gia hạn sau {current.daysUntilRenewal} ngày</p>
           )}
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {current.usage.map((u) => {
-              const pct = u.limit ? Math.min(100, Math.round((u.used / u.limit) * 100)) : 0;
-              return (
-                <div key={u.code}>
-                  <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
-                    <span>{USAGE_LABELS[u.code] ?? u.code}</span>
-                    <span className="font-mono">
-                      {u.used} / {u.limit ?? '∞'}
-                    </span>
+          {/* Quota Usage Metrics */}
+          <div className="mt-5 border-t border-zinc-100 dark:border-zinc-800/80 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-50">Hạn mức tài nguyên sử dụng</h3>
+                <p className="text-xs text-zinc-500">Giới hạn hiệu dụng = Gói cơ sở + Tiện ích Add-on</p>
+              </div>
+              <span className="text-xs font-mono text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                10 Quotas Engine
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {(usageOverview?.usages || []).map((u) => {
+                const isUnlimited = u.mode === 'UNLIMITED';
+                const isDisabled = u.mode === 'DISABLED';
+                const isLimitReached = u.status === 'LIMIT_REACHED';
+                const isCritical = u.status === 'CRITICAL_90';
+                const isWarning = u.status === 'WARNING_80';
+
+                return (
+                  <div
+                    key={u.code}
+                    className={`p-3 rounded-xl border transition-all ${
+                      isLimitReached
+                        ? 'bg-rose-50/50 border-rose-300 dark:bg-rose-950/20 dark:border-rose-900/60'
+                        : isCritical
+                        ? 'bg-orange-50/50 border-orange-300 dark:bg-orange-950/20 dark:border-orange-900/60'
+                        : isWarning
+                        ? 'bg-amber-50/50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-900/60'
+                        : 'bg-zinc-50/60 border-zinc-200/80 dark:bg-zinc-800/40 dark:border-zinc-700/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
+                        {u.name}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                        {isUnlimited ? (
+                          <span className="text-cyan-600 dark:text-cyan-400 font-semibold">Không giới hạn</span>
+                        ) : isDisabled ? (
+                          <span className="text-zinc-400">Vô hiệu hóa</span>
+                        ) : (
+                          `${u.currentValue} / ${u.effectiveLimit} ${u.unit}`
+                        )}
+                      </span>
+                    </div>
+
+                    {!isUnlimited && !isDisabled && (
+                      <div className="space-y-1.5">
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              isLimitReached
+                                ? 'bg-rose-600 dark:bg-rose-500'
+                                : isCritical
+                                ? 'bg-orange-500'
+                                : isWarning
+                                ? 'bg-amber-500'
+                                : 'bg-emerald-600 dark:bg-emerald-400'
+                            }`}
+                            style={{ width: `${u.percentage}%` }}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-mono text-zinc-500">{u.percentage}% đã dùng</span>
+
+                          {isLimitReached ? (
+                            <span className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400">
+                              <Warning className="w-3 h-3" />
+                              100% Đạt giới hạn
+                            </span>
+                          ) : isCritical ? (
+                            <span className="inline-flex items-center gap-1 font-semibold text-orange-600 dark:text-orange-400">
+                              <WarningCircle className="w-3 h-3" />
+                              90% Nguy cấp
+                            </span>
+                          ) : isWarning ? (
+                            <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
+                              <WarningCircle className="w-3 h-3" />
+                              80% Cảnh báo
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400">Bình thường</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {isLimitReached && (
+                      <div className="mt-2 pt-2 border-t border-rose-200 dark:border-rose-900/50 flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-rose-700 dark:text-rose-300 font-medium">
+                          Đã chặn tạo thêm. Không xóa dữ liệu.
+                        </span>
+                        <a
+                          href="#upgrade-plans"
+                          className="text-[11px] font-bold text-cyan-600 hover:text-cyan-500 dark:text-cyan-400 flex items-center gap-0.5"
+                        >
+                          <span>Nâng cấp ngay</span>
+                          <ArrowUpRight className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
                   </div>
-                  <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-stone-100 dark:bg-zinc-800">
-                    <div className="h-full rounded-full bg-emerald-600 dark:bg-emerald-400" style={{ width: u.limit ? `${pct}%` : '100%' }} />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </Card>
       )}

@@ -10,10 +10,14 @@ import { ROLE } from '../../common/types/role';
 import type { RequestUser } from '../../common/types/jwt-payload';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { EntitlementService } from '../../entitlement/entitlement.service';
 
 @Injectable()
 export class OwnerBranchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly entitlementService: EntitlementService,
+  ) {}
 
   async list(tenantId: string) {
     const branches = await this.prisma.branch.findMany({
@@ -244,30 +248,7 @@ export class OwnerBranchesService {
   }
 
   private async assertQuotaNotExceeded(tenantId: string) {
-    const subscription = await this.prisma.subscription.findUnique({
-      where: { tenant_id: tenantId },
-      include: {
-        saas_plans: {
-          include: {
-            saas_plan_features: { include: { platform_features: true } },
-          },
-        },
-      },
-    });
-    const maxBranchesFeature = subscription?.saas_plans.saas_plan_features.find(
-      (f) => f.platform_features.code === 'MAX_BRANCHES',
-    );
-    const limit = maxBranchesFeature?.quota_value ?? null; // null = không giới hạn
-    if (limit === null) return;
-
-    const currentCount = await this.prisma.branch.count({
-      where: { tenant_id: tenantId },
-    });
-    if (currentCount >= limit) {
-      throw new BadRequestException(
-        `Đã đạt giới hạn ${limit} chi nhánh của gói hiện tại. Hãy nâng cấp gói để tạo thêm chi nhánh.`,
-      );
-    }
+    await this.entitlementService.assertQuotaAvailable(tenantId, 'MAX_BRANCHES');
   }
 
   private async generateUniqueCode(tenantId: string, name: string) {

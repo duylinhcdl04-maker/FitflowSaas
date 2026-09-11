@@ -41,6 +41,7 @@ import {
   SellPtPackageDto,
   EnrollFaceProfileDto,
   FaceCheckinDto,
+  OfflineBatchSyncDto,
 } from './dto/manager.dto';
 
 @Controller('manager')
@@ -149,6 +150,23 @@ export class ManagerController {
     @Body() dto: FaceCheckinDto,
   ) {
     return this.managerService.checkInOrOutViaFace(user, dto);
+  }
+
+  @Get('checkin/offline-members-cache')
+  getOfflineMembersCache(
+    @CurrentUser() user: RequestUser,
+    @Query('branchId') branchId?: string,
+  ) {
+    return this.managerService.getOfflineMembersCache(user, branchId);
+  }
+
+  @Post('checkin/offline-batch-sync')
+  @HttpCode(HttpStatus.OK)
+  syncOfflineBatchCheckin(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: OfflineBatchSyncDto,
+  ) {
+    return this.managerService.syncOfflineBatchCheckin(user, dto);
   }
 
   @Get('customers')

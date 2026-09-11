@@ -29,6 +29,7 @@ import {
   SellPtPackageDto,
   EnrollFaceProfileDto,
   FaceCheckinDto,
+  OfflineBatchSyncDto,
 } from './dto/manager.dto';
 
 import { MailService } from '../mail/mail.service';
@@ -38,6 +39,7 @@ import { buildVietQrUrl, generatePaymentRef, isVietQrMethod, mapPaymentMethod } 
 import { AutoCheckoutPolicyService } from '../auto-checkout/auto-checkout-policy.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OwnerSettingsService } from '../owner/settings/owner-settings.service';
+import { EntitlementService } from '../entitlement/entitlement.service';
 
 function formatVnd(amount: number): string {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -54,6 +56,7 @@ export class ManagerService {
     private readonly notifications: NotificationsService,
     private readonly jwt: JwtService,
     private readonly ownerSettings: OwnerSettingsService,
+    private readonly entitlementService: EntitlementService,
   ) {}
 
   /** Read-only passthrough — Staff/Manager UI (Face ID tab, kiosk) cần biết Owner có bật check-in bằng khuôn mặt/QR không, nhưng không có quyền gọi thẳng /owner/settings/checkin-config (Roles OWNER only). */
@@ -1528,6 +1531,201 @@ export class ManagerService {
     return { action: 'CHECKED_IN' as const, attendance, customerName: customer.full_name };
   }
 
+  /**
+   * Tải danh bạ hội viên có thẻ ACTIVE / FROZEN của chi nhánh để lưu vào IndexedDB trình duyệt
+   * phục vụ tra cứu và check-in khi mất mạng Internet hoàn toàn (Offline Mode).
+   */
+  async getOfflineMembersCache(user: RequestUser, requestedBranchId?: string) {
+    const tenantId = user.tenantId!;
+    const branchId = await this.resolveBranchId(user, requestedBranchId);
+
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        tenant_id: tenantId,
+        status: 'ACTIVE',
+        memberships: {
+          some: {
+            status: { in: ['ACTIVE', 'FROZEN'] },
+            OR: [
+              { branch_access_scope_snapshot: { not: 'HOME_BRANCH' } },
+              { branch_id: branchId },
+            ],
+          },
+        },
+      },
+      select: {
+        id: true,
+        customer_code: true,
+        full_name: true,
+        phone: true,
+        avatar_url: true,
+        memberships: {
+          where: {
+            status: { in: ['ACTIVE', 'FROZEN'] },
+            OR: [
+              { branch_access_scope_snapshot: { not: 'HOME_BRANCH' } },
+              { branch_id: branchId },
+            ],
+          },
+          orderBy: { created_at: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            package_name_snapshot: true,
+            status: true,
+            start_date: true,
+            end_date: true,
+            branch_access_scope_snapshot: true,
+            branch_id: true,
+          },
+        },
+      },
+    });
+
+    return {
+      branchId,
+      cachedAt: new Date().toISOString(),
+      total: customers.length,
+      members: customers.map((c) => {
+        const mem = c.memberships[0];
+        return {
+          id: c.id,
+          customerCode: c.customer_code,
+          fullName: c.full_name,
+          phone: c.phone,
+          avatarUrl: c.avatar_url,
+          membershipId: mem?.id,
+          membershipStatus: mem?.status ?? 'ACTIVE',
+          activePackageName: mem?.package_name_snapshot ?? 'Gói tập',
+          validUntil: mem?.end_date ? mem.end_date.toISOString() : null,
+          branchAccess: mem?.branch_access_scope_snapshot ?? 'HOME_BRANCH',
+          branchId: mem?.branch_id ?? branchId,
+        };
+      }),
+    };
+  }
+
+  /**
+   * Đồng bộ hàng loạt lượt Check-in được lưu ngoại tuyến trong IndexedDB khi máy tính mất mạng.
+   * Sử dụng clientAttendanceId làm Idempotency Key để đảm bảo không bị nhân bản dữ liệu.
+   */
+  async syncOfflineBatchCheckin(user: RequestUser, dto: OfflineBatchSyncDto) {
+    const tenantId = user.tenantId!;
+    const branchId = await this.resolveBranchId(user);
+    const successIds: string[] = [];
+    const conflicts: Array<{ id: string; customerId: string; reason: string }> = [];
+
+    if (!dto.items || dto.items.length === 0) {
+      return { syncedCount: 0, successIds: [], conflicts: [] };
+    }
+
+    for (const item of dto.items) {
+      try {
+        // 1. Check idempotency: nếu id này đã tồn tại trong CSDL -> đã sync rồi
+        const existingAttendance = await this.prisma.attendances.findUnique({
+          where: { id: item.clientAttendanceId },
+        });
+        if (existingAttendance) {
+          successIds.push(item.clientAttendanceId);
+          continue;
+        }
+
+        // 2. Check if customer is currently CHECKED_IN in DB
+        const currentlyCheckedIn = await this.prisma.attendances.findFirst({
+          where: {
+            tenant_id: tenantId,
+            customer_id: item.customerId,
+            status: 'CHECKED_IN',
+          },
+        });
+        if (currentlyCheckedIn) {
+          conflicts.push({
+            id: item.clientAttendanceId,
+            customerId: item.customerId,
+            reason: 'Khách hàng đã được check-in trực tuyến trước đó trên hệ thống',
+          });
+          continue;
+        }
+
+        const checkInTime = new Date(item.checkInAt);
+        const validCheckInAt = isNaN(checkInTime.getTime()) ? new Date() : checkInTime;
+
+        const autoCheckoutAt = await this.autoCheckoutPolicy.computeAutoCheckoutAt(
+          tenantId,
+          item.branchId ?? branchId,
+          validCheckInAt,
+        );
+
+        let membershipId = item.membershipId ?? null;
+        if (!membershipId) {
+          const activeMem = await this.prisma.membership.findFirst({
+            where: {
+              tenant_id: tenantId,
+              customer_id: item.customerId,
+              status: { in: ['ACTIVE', 'SCHEDULED', 'FROZEN'] },
+            },
+            orderBy: { created_at: 'desc' },
+            select: { id: true },
+          });
+          if (activeMem) membershipId = activeMem.id;
+        }
+
+        const validMethod = ['QR', 'MANUAL', 'FACE', 'CARD'].includes(item.method ?? '')
+          ? (item.method as string)
+          : 'MANUAL';
+
+        await this.prisma.attendances.create({
+          data: {
+            id: item.clientAttendanceId,
+            tenant_id: tenantId,
+            branch_id: item.branchId ?? branchId,
+            customer_id: item.customerId,
+            attendance_type: item.attendanceType === 'GUEST' ? 'GUEST' : 'MEMBER',
+            membership_id: membershipId,
+            check_in_at: validCheckInAt,
+            check_in_method: validMethod,
+            check_in_by: user.id,
+            auto_checkout_at: autoCheckoutAt,
+            status: 'CHECKED_IN',
+            note: item.note ? `[Offline Sync] ${item.note}` : '[Offline Sync]',
+          },
+        });
+
+        await writeAuditLog(this.prisma, {
+          tenantId,
+          actorUserId: user.id,
+          actorRole: ROLE.BRANCH_MANAGER,
+          entityType: 'ATTENDANCE',
+          entityId: item.clientAttendanceId,
+          action: 'OFFLINE_ATTENDANCE_SYNCED',
+          afterData: {
+            checkInAt: validCheckInAt.toISOString(),
+            method: validMethod,
+          },
+        });
+
+        successIds.push(item.clientAttendanceId);
+      } catch (err: any) {
+        conflicts.push({
+          id: item.clientAttendanceId,
+          customerId: item.customerId,
+          reason: err?.message || 'Lỗi không xác định khi lưu lượt check-in',
+        });
+      }
+    }
+
+    if (successIds.length > 0) {
+      this.realtimeGateway.emitToBranch(tenantId, branchId, 'attendance:updated', {});
+      this.realtimeGateway.emitToBranch(tenantId, branchId, 'dashboard:refresh', {});
+    }
+
+    return {
+      syncedCount: successIds.length,
+      successIds,
+      conflicts,
+    };
+  }
+
   async manualCheckout(user: RequestUser, attendanceId: string) {
     const attendance = await this.prisma.attendances.findUnique({
       where: { id: attendanceId },
@@ -2137,6 +2335,8 @@ export class ManagerService {
     const branchId = await this.resolveBranchId(user);
     const tenantId = user.tenantId!;
 
+    await this.entitlementService.assertQuotaAvailable(tenantId, 'MAX_MEMBERS');
+
     const existing = await this.prisma.customer.findFirst({
       where: { tenant_id: tenantId, phone: dto.phone },
     });
@@ -2467,6 +2667,11 @@ export class ManagerService {
 
     const staffRoleCode = dto.role === 'PT' ? 'PT' : 'STAFF';
 
+    await this.entitlementService.assertQuotaAvailable(
+      tenantId,
+      staffRoleCode === 'PT' ? 'MAX_PT' : 'MAX_STAFF',
+    );
+
     // Find role in db
     const roleRecord = await this.prisma.roles.findUnique({
       where: { code: staffRoleCode },
@@ -2553,6 +2758,8 @@ export class ManagerService {
   async registerCustomerWithAccount(user: RequestUser, dto: any) {
     const tenantId = user.tenantId!;
     const branchId = await this.resolveBranchId(user);
+
+    await this.entitlementService.assertQuotaAvailable(tenantId, 'MAX_MEMBERS');
 
     // Validate email
     const existingUser = await this.prisma.user.findFirst({

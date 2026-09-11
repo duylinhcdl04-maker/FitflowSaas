@@ -38,14 +38,14 @@ export default function FindStorePage() {
 
   return (
     <AuthLayout>
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-md">
         <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="font-display text-xl font-bold text-zinc-900 dark:text-zinc-50">Đăng nhập FitFlow</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Nhập địa chỉ cửa hàng của bạn</p>
+          <h1 className="font-['Be_Vietnam_Pro',sans-serif] text-2xl font-black text-white">Đăng nhập FitFlow</h1>
+          <p className="font-['Plus_Jakarta_Sans',sans-serif] text-sm text-[#A7A1AD]">Nhập địa chỉ cửa hàng hoặc chuỗi phòng gym của bạn</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
-          <div className="flex overflow-hidden rounded-2xl border border-stone-300 focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-600/20 dark:border-zinc-700">
+        <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-5">
+          <div className="flex overflow-hidden rounded-xl border border-white/10 bg-[#151119] focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20">
             <input
               autoFocus
               required
@@ -54,19 +54,19 @@ export default function FindStorePage() {
               value={slug}
               onChange={(e) => setSlug(e.target.value)}
             />
-            <span className="flex shrink-0 items-center bg-stone-100 px-3 text-sm text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            <span className="flex shrink-0 items-center bg-[#1B1521] px-3.5 text-xs font-['JetBrains_Mono'] text-purple-300/80 border-l border-white/8">
               .{window.location.hostname.endsWith('.localhost') ? 'localhost' : (getRootDomain(window.location.hostname) || 'fitfloww.store')}
             </span>
           </div>
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p className="text-sm text-rose-400 font-medium">{error}</p>}
           <Button type="submit" size="lg" className="w-full justify-center" disabled={mutation.isPending || !slug.trim()}>
             {mutation.isPending ? 'Đang tìm...' : 'Vào cửa hàng'}
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          Bạn chưa có cửa hàng?{' '}
-          <Link to="/owner/register" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-400">
+        <p className="mt-8 text-center text-sm font-['Plus_Jakarta_Sans',sans-serif] text-[#A7A1AD]">
+          Bạn chưa có tài khoản FitFlow?{' '}
+          <Link to="/owner/register" className="font-bold text-purple-400 hover:text-purple-300 transition-colors">
             Dùng thử miễn phí
           </Link>
         </p>

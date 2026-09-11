@@ -123,27 +123,28 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout>
-      <Card className="relative w-full max-w-md">
+      <Card className="relative w-full max-w-lg">
         <div className="flex flex-col items-center gap-1.5 text-center">
-          <h1 className="font-display text-lg font-bold text-zinc-900 dark:text-zinc-50">
-            {step === 1 ? 'Bắt đầu quản lý phòng tập' : 'Doanh nghiệp của bạn'}
+          <h1 className="font-['Be_Vietnam_Pro',sans-serif] text-2xl font-black text-white">
+            {step === 1 ? 'Khởi tạo tài khoản FitFlow' : 'Thiết lập phòng gym của bạn'}
           </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            {step === 1 ? 'Dùng thử miễn phí 7 ngày, không cần thẻ thanh toán' : 'Bước cuối cùng — chỉ mất một phút'}
+          <p className="font-['Plus_Jakarta_Sans',sans-serif] text-sm text-[#A7A1AD]">
+            {step === 1 ? '14 ngày trải nghiệm đầy đủ tính năng, không cần thẻ tín dụng' : 'Chỉ mất 1 phút để đồng bộ hệ thống'}
           </p>
-          <div className="flex gap-1.5">
-            <span className={`h-1.5 w-6 rounded-full ${step >= 1 ? 'bg-emerald-600' : 'bg-stone-200 dark:bg-zinc-700'}`} />
-            <span className={`h-1.5 w-6 rounded-full ${step >= 2 ? 'bg-emerald-600' : 'bg-stone-200 dark:bg-zinc-700'}`} />
+          <div className="flex gap-2 mt-2">
+            <span className={`h-1.5 w-8 rounded-full transition-all duration-300 ${step >= 1 ? 'bg-purple-600 shadow-[0_0_8px_rgba(168,85,247,0.6)]' : 'bg-white/10'}`} />
+            <span className={`h-1.5 w-8 rounded-full transition-all duration-300 ${step >= 2 ? 'bg-purple-600 shadow-[0_0_8px_rgba(168,85,247,0.6)]' : 'bg-white/10'}`} />
           </div>
         </div>
 
         {step === 1 ? (
-          <form onSubmit={handleStep1Submit} className="mt-6 flex flex-col gap-3.5">
+          <form onSubmit={handleStep1Submit} className="mt-8 flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-3">
               <FormField label="Họ và tên" htmlFor="fullName">
                 <input
                   id="fullName"
                   required
+                  placeholder="Nguyễn Văn A"
                   className={inputClass}
                   value={account.fullName}
                   onChange={(e) => setAccount((f) => ({ ...f, fullName: e.target.value }))}
@@ -152,6 +153,7 @@ export default function RegisterPage() {
               <FormField label="Số điện thoại" htmlFor="phone">
                 <input
                   id="phone"
+                  placeholder="0987654321"
                   className={inputClass}
                   value={account.phone}
                   onChange={(e) => setAccount((f) => ({ ...f, phone: e.target.value }))}
@@ -163,6 +165,7 @@ export default function RegisterPage() {
                 id="email"
                 type="email"
                 required
+                placeholder="chuphong@gmail.com"
                 className={inputClass}
                 value={account.email}
                 onChange={(e) => setAccount((f) => ({ ...f, email: e.target.value }))}
@@ -189,18 +192,18 @@ export default function RegisterPage() {
                 />
               </FormField>
             </div>
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-            <Button type="submit" size="lg" className="w-full justify-center">
-              Tiếp tục
+            {error && <p className="text-sm text-rose-400 font-medium">{error}</p>}
+            <Button type="submit" size="lg" className="w-full justify-center mt-2">
+              Tiếp tục thiết lập phòng gym →
             </Button>
           </form>
         ) : (
-          <form onSubmit={handleStep2Submit} className="mt-5 flex flex-col gap-3.5">
+          <form onSubmit={handleStep2Submit} className="mt-8 flex flex-col gap-4">
             <FormField label="Tên phòng tập / thương hiệu" htmlFor="businessName">
               <input
                 id="businessName"
                 required
-                placeholder="FitFlow Fitness"
+                placeholder="FitFlow Fitness & Yoga"
                 className={inputClass}
                 value={business.businessName}
                 onChange={(e) => {
@@ -208,8 +211,6 @@ export default function RegisterPage() {
                   setBusiness((f) => ({
                     ...f,
                     businessName: name,
-                    // Tự điền địa chỉ truy cập theo tên, đúng kiểu KiotViet —
-                    // dừng tự điền ngay khi Owner tự sửa ô bên dưới.
                     brandSlug: slugTouched ? f.brandSlug : slugify(name),
                   }));
                 }}
@@ -217,36 +218,36 @@ export default function RegisterPage() {
             </FormField>
 
             <FormField label="Địa chỉ truy cập" htmlFor="brandSlug">
-              <div className="flex overflow-hidden rounded-2xl border border-stone-300 shadow-sm focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-600/20 dark:border-zinc-700">
+              <div className="flex overflow-hidden rounded-xl border border-white/10 bg-[#151119] focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20">
                 <input
                   id="brandSlug"
                   required
                   placeholder="fitflow-cau-giay"
                   pattern="[a-z0-9\\-]{2,50}"
-                  className="min-w-0 flex-1 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:bg-zinc-900 dark:text-zinc-100"
+                  className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-[#F5F3F7] placeholder:text-[#6F6877] focus:outline-none"
                   value={business.brandSlug}
                   onChange={(e) => {
                     setSlugTouched(true);
                     setBusiness((f) => ({ ...f, brandSlug: e.target.value.toLowerCase() }));
                   }}
                 />
-                <span className="flex shrink-0 items-center bg-stone-100 px-3 text-sm font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                <span className="flex shrink-0 items-center bg-[#1B1521] px-3.5 text-xs font-['JetBrains_Mono'] text-purple-300/80 border-l border-white/8">
                   .fitfloww.store
                 </span>
               </div>
-              <p className="text-xs text-zinc-400">Đang chạy local — đây sẽ là địa chỉ đăng nhập khi có tên miền riêng.</p>
+              <p className="text-xs text-[#7A7485]">Địa chỉ đăng nhập trực tiếp cho phòng gym của bạn.</p>
             </FormField>
 
             <div className="grid grid-cols-2 gap-3">
               <FormField label="Loại hình" htmlFor="businessType">
                 <select
                   id="businessType"
-                  className={inputClass}
+                  className={`${inputClass} bg-[#151119] text-[#F5F3F7]`}
                   value={business.businessType}
                   onChange={(e) => setBusiness((f) => ({ ...f, businessType: e.target.value }))}
                 >
                   {BUSINESS_TYPES.map((t) => (
-                    <option key={t} value={t}>
+                    <option key={t} value={t} className="bg-[#151119] text-white">
                       {t}
                     </option>
                   ))}
@@ -255,6 +256,7 @@ export default function RegisterPage() {
               <FormField label="Địa chỉ (không bắt buộc)" htmlFor="address">
                 <input
                   id="address"
+                  placeholder="Quận / Thành phố"
                   className={inputClass}
                   value={business.address}
                   onChange={(e) => setBusiness((f) => ({ ...f, address: e.target.value }))}
@@ -262,12 +264,12 @@ export default function RegisterPage() {
               </FormField>
             </div>
 
-            <div className="rounded-2xl bg-stone-50 p-3 dark:bg-zinc-800/60">
+            <div className="rounded-xl bg-[#151119] p-3.5 border border-white/8">
               {!contactOverride ? (
-                <div className="flex items-center justify-between gap-3 text-sm">
+                <div className="flex items-center justify-between gap-3 text-sm font-['Plus_Jakarta_Sans',sans-serif]">
                   <div className="min-w-0">
-                    <p className="text-zinc-500 dark:text-zinc-400">Liên hệ doanh nghiệp</p>
-                    <p className="truncate font-medium text-zinc-800 dark:text-zinc-200">
+                    <p className="text-xs text-[#A7A1AD]">Liên hệ doanh nghiệp</p>
+                    <p className="truncate font-semibold text-white">
                       {account.email}
                       {account.phone && ` · ${account.phone}`}
                     </p>
@@ -282,7 +284,7 @@ export default function RegisterPage() {
                       }));
                       setContactOverride(true);
                     }}
-                    className="shrink-0 text-sm font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                    className="shrink-0 text-xs font-bold text-purple-400 hover:text-purple-300 transition-colors"
                   >
                     Dùng liên hệ khác
                   </button>
@@ -290,11 +292,11 @@ export default function RegisterPage() {
               ) : (
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Liên hệ doanh nghiệp</p>
+                    <p className="text-xs font-semibold text-[#A7A1AD]">Liên hệ doanh nghiệp</p>
                     <button
                       type="button"
                       onClick={() => setContactOverride(false)}
-                      className="text-xs font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                      className="text-xs font-bold text-purple-400 hover:text-purple-300 transition-colors"
                     >
                       Dùng liên hệ tài khoản
                     </button>
@@ -327,32 +329,32 @@ export default function RegisterPage() {
               <div className="grid grid-cols-2 gap-2">
                 {(
                   [
-                    { value: true, label: 'Dữ liệu mẫu' },
-                    { value: false, label: 'Trang trống' },
+                    { value: true, label: 'Dữ liệu mẫu (Khuyên dùng)' },
+                    { value: false, label: 'Dữ liệu trống' },
                   ] as const
                 ).map((opt) => (
                   <button
                     key={String(opt.value)}
                     type="button"
                     onClick={() => setBusiness((f) => ({ ...f, seedSampleData: opt.value }))}
-                    className={`rounded-2xl border px-3 py-2.5 text-sm font-medium transition-colors ${
+                    className={`rounded-xl border px-3 py-2.5 text-xs font-bold transition-all ${
                       business.seedSampleData === opt.value
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-500/10 dark:text-emerald-300'
-                        : 'border-stone-300 text-zinc-600 hover:bg-stone-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                        ? 'border-purple-500 bg-purple-950/60 text-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.2)]'
+                        : 'border-white/10 bg-[#151119] text-[#A7A1AD] hover:border-white/20 hover:text-white'
                     }`}
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-[#7A7485]">
                 {business.seedSampleData
-                  ? 'Có sẵn chi nhánh, khách hàng, gói tập, PT... để bạn khám phá hệ thống.'
-                  : 'Tự thiết lập chi nhánh, khách hàng... từ đầu.'}
+                  ? 'Có sẵn chi nhánh, hội viên, gói tập, PT... để bạn dễ dàng trải nghiệm.'
+                  : 'Tự thiết lập dữ liệu từ đầu.'}
               </p>
             </FormField>
 
-            {error && !emailTaken && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            {error && !emailTaken && <p className="text-sm text-rose-400 font-medium">{error}</p>}
             {emailTaken && (
               <Callout
                 tone="warning"
@@ -371,22 +373,22 @@ export default function RegisterPage() {
                 Email này đã đăng ký trước đó nhưng chưa xác thực OTP. Gửi lại mã để tiếp tục kích hoạt tài khoản cũ.
               </Callout>
             )}
-            {resendMessage && <p className="text-sm text-red-600 dark:text-red-400">{resendMessage}</p>}
-            <div className="flex gap-2">
+            {resendMessage && <p className="text-sm text-rose-400 font-medium">{resendMessage}</p>}
+            <div className="flex gap-3 mt-2">
               <Button type="button" variant="secondary" onClick={() => setStep(1)} disabled={mutation.isPending}>
-                Quay lại
+                ← Quay lại
               </Button>
               <Button type="submit" size="lg" className="flex-1 justify-center" disabled={mutation.isPending}>
-                {mutation.isPending ? 'Đang khởi tạo...' : 'Bắt đầu dùng thử →'}
+                {mutation.isPending ? 'Đang khởi tạo...' : 'Bắt đầu dùng thử FitFlow →'}
               </Button>
             </div>
           </form>
         )}
 
         {step === 1 && (
-          <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="mt-8 text-center text-sm font-['Plus_Jakarta_Sans',sans-serif] text-[#A7A1AD]">
             Đã có tài khoản?{' '}
-            <Link to="/owner/login" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-400">
+            <Link to="/owner/login" className="font-bold text-purple-400 hover:text-purple-300 transition-colors">
               Đăng nhập
             </Link>
           </p>

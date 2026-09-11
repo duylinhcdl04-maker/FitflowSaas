@@ -17,6 +17,7 @@ import { PaymentsGatewayModule } from './payments-gateway/payments-gateway.modul
 import { AutoCheckoutSchedulerModule } from './auto-checkout/auto-checkout-scheduler.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { TenantsModule } from './tenants/tenants.module';
+import { EntitlementModule } from './entitlement/entitlement.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { TenantGuard } from './common/guards/tenant.guard';
 
@@ -37,6 +38,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
     AutoCheckoutSchedulerModule,
     NotificationsModule,
     TenantsModule,
+    EntitlementModule,
   ],
   controllers: [AppController],
   providers: [

@@ -8,6 +8,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../../mail/mail.service';
+import { EntitlementService } from '../../entitlement/entitlement.service';
 import { writeAuditLog } from '../../common/utils/audit';
 import { ROLE } from '../../common/types/role';
 import type { RequestUser } from '../../common/types/jwt-payload';
@@ -16,11 +17,20 @@ import { AcceptInviteDto } from './dto/accept-invite.dto';
 
 const INVITE_TTL_DAYS = 7;
 
+// dto.roleCode -> quota code kiểm tra trước khi mời (MAX_STAFF/MAX_PT). Role khác
+// trong INVITABLE_ROLES nếu có về sau mà thiếu ở đây sẽ không bị chặn quota — cố ý
+// fail-open để không chặn nhầm role chưa có quota tương ứng trong catalog.
+const ROLE_QUOTA_CODE: Partial<Record<string, string>> = {
+  [ROLE.STAFF]: 'MAX_STAFF',
+  [ROLE.PT]: 'MAX_PT',
+};
+
 @Injectable()
 export class OwnerStaffService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly entitlementService: EntitlementService,
   ) {}
 
   async list(tenantId: string) {
@@ -89,6 +99,11 @@ export class OwnerStaffService {
         where: { id: dto.branchId, tenant_id: tenantId },
       });
       if (!branch) throw new BadRequestException('Không tìm thấy chi nhánh');
+    }
+
+    const quotaCode = ROLE_QUOTA_CODE[dto.roleCode];
+    if (quotaCode) {
+      await this.entitlementService.assertQuotaAvailable(tenantId, quotaCode);
     }
 
     const rawToken = randomBytes(24).toString('hex');

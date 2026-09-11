@@ -17,24 +17,21 @@ type ButtonProps = {
   form?: string;
 };
 
-// Owner Portal button — pill-shaped, mirrors the marketing site's consumer-
-// facing language (src/components/Button.tsx) rather than the Admin
-// console's rounded-lg "enterprise" style. Deliberately warmer/friendlier.
 const base =
-  'inline-flex shrink-0 items-center justify-center gap-2 rounded-full font-semibold whitespace-nowrap transition-transform duration-200 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:pointer-events-none disabled:opacity-50';
+  'inline-flex shrink-0 items-center justify-center gap-2 rounded-xl font-semibold whitespace-nowrap transition-all duration-200 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:pointer-events-none disabled:opacity-50';
 
 const sizes: Record<Size, string> = {
-  sm: 'px-4 py-2 text-xs',
-  md: 'px-6 py-3 text-sm',
-  lg: 'px-8 py-3.5 text-base',
+  sm: 'px-3 py-1.5 text-xs',
+  md: 'px-4 py-2 text-sm',
+  lg: 'px-6 py-2.5 text-base',
 };
 
 const variants: Record<Variant, string> = {
   primary:
-    'bg-emerald-700 text-white shadow-sm shadow-emerald-900/10 hover:bg-emerald-800 dark:bg-emerald-400 dark:text-zinc-950 dark:hover:bg-emerald-300',
+    'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs hover:shadow-sm active:bg-emerald-700',
   secondary:
-    'border border-stone-300 bg-white text-zinc-800 hover:bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800',
-  ghost: 'text-zinc-600 hover:bg-stone-100 dark:text-zinc-300 dark:hover:bg-zinc-800',
+    'border border-stone-200 bg-white text-zinc-800 hover:bg-stone-50 hover:border-stone-300 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800',
+  ghost: 'text-zinc-600 hover:text-zinc-900 hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800',
 };
 
 export default function Button({

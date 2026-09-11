@@ -32,12 +32,16 @@ import Callout from '../../../owner/components/Callout';
 import MemberDetailModal from '../../components/MemberDetailModal';
 import QrCameraScanner from '../../../staff/components/QrCameraScanner';
 import { useRealtimeInvalidate } from '../../../lib/useRealtimeInvalidate';
+import { useNetworkStatus } from '../../../lib/useNetworkStatus';
+import { searchOfflineMembers, enqueueOfflineAttendance, type OfflineMember } from '../../../lib/offlineDb';
 
 const QR_TOAST_DURATION_MS = 5000;
 
 export default function ManagerCheckinPage() {
   const queryClient = useQueryClient();
+  const { isOnline, refreshMemberCache } = useNetworkStatus();
   const [search, setSearch] = useState('');
+  const [offlineResults, setOfflineResults] = useState<OfflineMember[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -57,12 +61,30 @@ export default function ManagerCheckinPage() {
   const [targetAttendance, setTargetAttendance] = useState<any | null>(null);
   const [undoReason, setUndoReason] = useState('');
 
+  // Preload/refresh offline members cache when online
+  useEffect(() => {
+    if (isOnline) {
+      refreshMemberCache();
+    }
+  }, [isOnline, refreshMemberCache]);
+
   // Live search query for customers
   const { data: customerData, isLoading: searching } = useQuery({
     queryKey: ['manager-checkin-search', search],
     queryFn: () => getManagerCustomers(search),
-    enabled: search.trim().length >= 2,
+    enabled: isOnline && search.trim().length >= 2,
   });
+
+  // Offline search fallback when offline or when no results online
+  useEffect(() => {
+    if (search.trim().length >= 2 && (!isOnline || customerData?.items?.length === 0)) {
+      searchOfflineMembers(search).then((res) => {
+        setOfflineResults(res);
+      });
+    } else {
+      setOfflineResults([]);
+    }
+  }, [search, isOnline, customerData]);
 
   // Query currently in gym — realtime push (attendance:updated) is primary update path
   const { data: inGymList = [] } = useQuery({
@@ -104,6 +126,33 @@ export default function ManagerCheckinPage() {
   function handleCameraDecode(text: string) {
     setError(null);
     qrScanMutation.mutate(text);
+  }
+
+  async function handleCheckinCustomer(customer: any) {
+    if (!customer) return;
+
+    if (!isOnline) {
+      try {
+        await enqueueOfflineAttendance({
+          customerId: customer.id,
+          customerName: customer.full_name || customer.fullName,
+          customerCode: customer.customer_code || customer.customerCode,
+          attendanceType: 'MEMBER',
+          method: 'MANUAL',
+          membershipId: customer.membershipId || customer.memberships?.[0]?.id,
+          checkInAt: new Date().toISOString(),
+        });
+        setSuccessMsg('Đã lưu Check-in ngoại tuyến (Offline) vào hàng đợi! Hệ thống sẽ tự động đồng bộ khi có mạng.');
+        setError(null);
+        setSelectedCustomer(null);
+        setSearch('');
+      } catch (err: any) {
+        setError(err?.message || 'Lỗi khi lưu check-in ngoại tuyến');
+      }
+      return;
+    }
+
+    checkinMutation.mutate(customer.id);
   }
 
   const checkinMutation = useMutation({
@@ -157,10 +206,20 @@ export default function ManagerCheckinPage() {
     setSuccessMsg(null);
   }
 
-  function handleCheckinClick(customerId: string) {
+  function handleCheckinClick(customerOrId: any) {
     setError(null);
     setSuccessMsg(null);
-    checkinMutation.mutate(customerId);
+    if (typeof customerOrId === 'string') {
+      const cust = customerData?.items?.find((c: any) => c.id === customerOrId) ||
+        offlineResults.find((c) => c.id === customerOrId);
+      if (cust) {
+        handleCheckinCustomer(cust);
+      } else {
+        checkinMutation.mutate(customerOrId);
+      }
+    } else {
+      handleCheckinCustomer(customerOrId);
+    }
   }
 
   function handleOpenUndoModal(item: any) {
@@ -256,68 +315,97 @@ export default function ManagerCheckinPage() {
               </div>
             )}
 
-            {/* Live Search Results */}
-            {search.trim().length >= 2 && (
-              <div className="mt-4 max-h-72 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
-                {searching ? (
-                  <div className="p-4 text-center text-xs text-slate-500">Đang tìm kiếm...</div>
-                ) : customerData?.items?.length === 0 ? (
-                  <div className="p-4 text-center text-xs text-slate-500">Không tìm thấy hội viên khớp từ khóa.</div>
-                ) : (
-                  customerData?.items?.map((cust: any) => {
-                    const activePkg = cust.memberships?.[0];
-                    const isInGym = cust.attendances?.length > 0;
+            {/* Live / Offline Search Results */}
+            {search.trim().length >= 2 && (() => {
+              const displayCustomers = isOnline && (customerData?.items?.length ?? 0) > 0
+                ? customerData?.items ?? []
+                : offlineResults.map((m) => ({
+                    id: m.id,
+                    full_name: m.fullName,
+                    customer_code: m.customerCode,
+                    phone: m.phone,
+                    membershipId: m.membershipId,
+                    memberships: [
+                      {
+                        package_name_snapshot: m.activePackageName,
+                        end_date: m.validUntil,
+                        status: m.membershipStatus,
+                      },
+                    ],
+                    isOffline: true,
+                  }));
 
-                    return (
-                      <div
-                        key={cust.id}
-                        onClick={() => handleSelectCustomer(cust)}
-                        className={`flex items-center justify-between p-3.5 cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-zinc-800/60 transition ${
-                          selectedCustomer?.id === cust.id ? 'bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-600' : ''
-                        }`}
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-slate-900 dark:text-white">{cust.full_name}</span>
-                            <span className="font-mono text-xs text-slate-400">({cust.customer_code})</span>
+              return (
+                <div className="mt-4 max-h-72 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+                  {searching ? (
+                    <div className="p-4 text-center text-xs text-slate-500">Đang tìm kiếm...</div>
+                  ) : displayCustomers.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      {!isOnline
+                        ? 'Không tìm thấy hội viên trong bộ nhớ đệm ngoại tuyến (Offline DB).'
+                        : 'Không tìm thấy hội viên khớp từ khóa.'}
+                    </div>
+                  ) : (
+                    displayCustomers.map((cust: any) => {
+                      const activePkg = cust.memberships?.[0];
+                      const isInGym = cust.attendances?.length > 0;
+
+                      return (
+                        <div
+                          key={cust.id}
+                          onClick={() => handleSelectCustomer(cust)}
+                          className={`flex items-center justify-between p-3.5 cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-zinc-800/60 transition ${
+                            selectedCustomer?.id === cust.id ? 'bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-600' : ''
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-slate-900 dark:text-white">{cust.full_name}</span>
+                              <span className="font-mono text-xs text-slate-400">({cust.customer_code})</span>
+                              {cust.isOffline && (
+                                <span className="rounded bg-rose-100 px-1.5 py-0.2 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                                  Offline DB
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500 font-mono mt-0.5">{cust.phone || 'Không có SĐT'}</p>
+                            {activePkg ? (
+                              <span className="inline-block mt-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded">
+                                {activePkg.package_name_snapshot} {activePkg.end_date ? `(HSD: ${new Date(activePkg.end_date).toLocaleDateString('vi-VN')})` : ''}
+                              </span>
+                            ) : (
+                              <span className="inline-block mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded">
+                                Chưa có / Hết hạn gói tập
+                              </span>
+                            )}
                           </div>
-                          <p className="text-xs text-slate-500 font-mono mt-0.5">{cust.phone || 'Không có SĐT'}</p>
-                          {activePkg ? (
-                            <span className="inline-block mt-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded">
-                              {activePkg.package_name_snapshot} (HSD: {new Date(activePkg.end_date).toLocaleDateString('vi-VN')})
-                            </span>
-                          ) : (
-                            <span className="inline-block mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded">
-                              Chưa có / Hết hạn gói tập
-                            </span>
-                          )}
-                        </div>
 
-                        <div>
-                          {isInGym ? (
-                            <span className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                              Đang ở phòng
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCheckinClick(cust.id);
-                              }}
-                              disabled={checkinMutation.isPending}
-                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition shadow"
-                            >
-                              Check-in
-                            </button>
-                          )}
+                          <div>
+                            {isInGym ? (
+                              <span className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                Đang ở phòng
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCheckinClick(cust);
+                                }}
+                                disabled={checkinMutation.isPending}
+                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition shadow"
+                              >
+                                Check-in
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
+                      );
+                    })
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Selected Customer Preview Card */}

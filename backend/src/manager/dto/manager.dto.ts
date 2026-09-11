@@ -62,6 +62,45 @@ export class UndoCheckinDto {
   reason!: string;
 }
 
+export class OfflineSyncItemDto {
+  @IsString()
+  @IsNotEmpty()
+  clientAttendanceId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  customerId!: string;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  checkInAt!: string;
+
+  @IsOptional()
+  @IsString()
+  attendanceType?: string; // 'MEMBER' | 'GUEST'
+
+  @IsOptional()
+  @IsString()
+  method?: string; // 'QR' | 'MANUAL' | 'FACE' | 'CARD'
+
+  @IsOptional()
+  @IsString()
+  membershipId?: string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+export class OfflineBatchSyncDto {
+  @IsArray({ message: 'Danh sách lượt check-in ngoại tuyến không hợp lệ' })
+  items!: OfflineSyncItemDto[];
+}
+
 export class SellMembershipDto {
   @IsString({ message: 'Customer ID không hợp lệ' })
   @IsNotEmpty({ message: 'Vui lòng chọn khách hàng' })

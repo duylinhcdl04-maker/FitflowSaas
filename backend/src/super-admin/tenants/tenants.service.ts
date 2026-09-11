@@ -31,11 +31,15 @@ const ALLOWED_TRANSITIONS: Record<TenantStatus, TenantStatus[]> = {
 
 // SA-03 Tab "Hạn mức": which platform_features codes represent a countable quota,
 // and how each maps to a live count on this tenant.
+// NB: 'MAX_MEMBERS' — not 'MAX_CUSTOMERS' — is the real platform_features.code seeded
+// for this tab (see prisma/seed-saas-plans-and-entitlements.ts). This used to say
+// 'MAX_CUSTOMERS', so `effectiveByCode.get(code)` below never matched anything and the
+// member-count row always showed "không giới hạn" regardless of the plan's real limit.
 const QUOTA_FEATURE_CODES = [
   'MAX_BRANCHES',
   'MAX_STAFF',
   'MAX_PT',
-  'MAX_CUSTOMERS',
+  'MAX_MEMBERS',
 ] as const;
 
 const TENANT_SUMMARY_INCLUDE = {
@@ -206,8 +210,14 @@ export class TenantsService {
     tenant: { _count?: { branches: number; users: number; customers: number } },
     featureMatrix: ReturnType<TenantsService['buildFeatureMatrix']>,
   ) {
-    const ptCount = await this.prisma.user_roles.count({
-      where: { tenant_id: tenantId, roles: { code: ROLE.PT } },
+    const ptCount = await this.prisma.user.count({
+      where: {
+        tenant_id: tenantId,
+        OR: [
+          { pt_profiles: { isNot: null } },
+          { user_roles: { some: { roles: { code: { in: [ROLE.PT, 'PT', 'PERSONAL_TRAINER'] } } } } },
+        ],
+      },
     });
 
     const effectiveByCode = new Map(
@@ -217,7 +227,7 @@ export class TenantsService {
       MAX_BRANCHES: tenant._count?.branches ?? 0,
       MAX_STAFF: tenant._count?.users ?? 0,
       MAX_PT: ptCount,
-      MAX_CUSTOMERS: tenant._count?.customers ?? 0,
+      MAX_MEMBERS: tenant._count?.customers ?? 0,
     };
     return QUOTA_FEATURE_CODES.map((code) => ({
       code,
@@ -248,7 +258,7 @@ export class TenantsService {
         label:
           r.action === 'TENANT_STATUS_CHANGED'
             ? 'Đổi trạng thái Tenant'
-            : 'Đổi gói / gia hạn Subscription',
+            : 'Cập nhật Subscription',
         actorRole: r.actor_role,
         reason: r.reason,
       })),
@@ -258,18 +268,27 @@ export class TenantsService {
   async listUsers(tenantId: string) {
     const users = await this.prisma.user.findMany({
       where: { tenant_id: tenantId },
-      include: { user_roles: { include: { roles: true } } },
+      include: {
+        user_roles: { include: { roles: true } },
+        pt_profiles: true,
+      },
       orderBy: { created_at: 'asc' },
     });
-    return users.map((u) => ({
-      id: u.id,
-      email: u.email,
-      fullName: u.full_name,
-      phone: u.phone,
-      status: u.status,
-      lastLoginAt: u.last_login_at,
-      roles: u.user_roles.map((ur) => ur.roles.code),
-    }));
+    return users.map((u) => {
+      const roles = u.user_roles.map((ur) => ur.roles.code);
+      if (u.pt_profiles && !roles.includes(ROLE.PT) && !roles.includes('PT')) {
+        roles.push(ROLE.PT);
+      }
+      return {
+        id: u.id,
+        email: u.email,
+        fullName: u.full_name,
+        phone: u.phone,
+        status: u.status,
+        lastLoginAt: u.last_login_at,
+        roles,
+      };
+    });
   }
 
   async listBranches(tenantId: string) {

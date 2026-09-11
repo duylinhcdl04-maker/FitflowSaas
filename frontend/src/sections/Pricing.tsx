@@ -1,7 +1,8 @@
-import { Check } from '@phosphor-icons/react'
+import { Check, Sparkle } from '@phosphor-icons/react'
 import Container from '../components/Container'
 import Button from '../components/Button'
 import Reveal from '../components/Reveal'
+import SpotlightCard from '../components/SpotlightCard'
 
 // Plan codes, names, prices and trial length mirror the live `saas_plans` table.
 // Feature-per-plan mapping below is an editorial default (the `saas_plan_features`
@@ -68,7 +69,7 @@ export default function Pricing() {
     <section id="bang-gia" className="py-20 lg:py-28">
       <Container>
         <Reveal>
-          <h2 className="font-display max-w-lg text-3xl font-bold tracking-tight text-zinc-900 md:text-4xl dark:text-zinc-50">
+          <h2 className="font-display max-w-lg text-3xl font-extrabold tracking-tight text-zinc-900 md:text-4xl dark:text-zinc-50">
             Bảng giá theo quy mô của gym bạn
           </h2>
           <p className="mt-3 max-w-md text-zinc-600 dark:text-zinc-400">
@@ -79,15 +80,16 @@ export default function Pricing() {
         <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {plans.map((plan, i) => (
             <Reveal key={plan.code} delay={i * 0.05}>
-              <div
-                className={`flex h-full flex-col rounded-2xl border p-6 ${
+              <SpotlightCard
+                className={`flex h-full flex-col rounded-3xl border p-6 ${
                   plan.featured
-                    ? 'border-emerald-700 bg-emerald-700 text-white dark:border-emerald-400 dark:bg-emerald-500/10'
-                    : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950'
+                    ? 'border-emerald-500/40 bg-zinc-950 shadow-[0_0_0_1px_rgba(16,185,129,0.15),0_24px_48px_-16px_rgba(16,185,129,0.35)]'
+                    : 'border-zinc-200 bg-white dark:border-white/10 dark:bg-zinc-950'
                 }`}
               >
                 {plan.featured && (
-                  <span className="mb-4 inline-flex w-fit items-center rounded-full bg-white/15 px-3 py-1 text-xs font-semibold dark:bg-emerald-400/20 dark:text-emerald-300">
+                  <span className="mb-5 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
+                    <Sparkle size={13} weight="fill" />
                     Phổ biến nhất
                   </span>
                 )}
@@ -100,18 +102,14 @@ export default function Pricing() {
                 </h3>
                 <div className="mt-3 flex items-baseline gap-1">
                   <span
-                    className={`font-display text-3xl font-bold ${
+                    className={`font-display text-3xl font-extrabold tracking-tight ${
                       plan.featured ? 'text-white' : 'text-zinc-900 dark:text-zinc-50'
                     }`}
                   >
                     {plan.price}
                   </span>
                   {plan.period && (
-                    <span
-                      className={`text-sm ${
-                        plan.featured ? 'text-emerald-50' : 'text-zinc-500 dark:text-zinc-400'
-                      }`}
-                    >
+                    <span className={`text-sm ${plan.featured ? 'text-zinc-400' : 'text-zinc-500 dark:text-zinc-400'}`}>
                       {plan.period}
                     </span>
                   )}
@@ -124,10 +122,10 @@ export default function Pricing() {
                         size={18}
                         weight="bold"
                         className={`mt-0.5 shrink-0 ${
-                          plan.featured ? 'text-emerald-200' : 'text-emerald-700 dark:text-emerald-400'
+                          plan.featured ? 'text-emerald-400' : 'text-emerald-700 dark:text-emerald-400'
                         }`}
                       />
-                      <span className={plan.featured ? 'text-emerald-50' : 'text-zinc-700 dark:text-zinc-300'}>
+                      <span className={plan.featured ? 'text-zinc-300' : 'text-zinc-700 dark:text-zinc-300'}>
                         {feature}
                       </span>
                     </li>
@@ -136,16 +134,12 @@ export default function Pricing() {
 
                 <Button
                   href={plan.cta === 'Liên hệ tư vấn' ? '#lien-he' : '/owner/register'}
-                  variant={plan.featured ? 'secondary' : 'primary'}
-                  className={`mt-6 w-full ${
-                    plan.featured
-                      ? '!border-white/40 !text-white hover:!bg-white/10 dark:!border-white/30'
-                      : ''
-                  }`}
+                  variant={plan.featured ? 'primary' : 'secondary'}
+                  className="mt-6 w-full"
                 >
                   {plan.cta}
                 </Button>
-              </div>
+              </SpotlightCard>
             </Reveal>
           ))}
         </div>

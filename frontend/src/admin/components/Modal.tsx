@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { X } from '@phosphor-icons/react';
 
@@ -8,6 +9,7 @@ const SIZES = {
 } as const;
 
 export default function Modal({
+  open = true,
   title,
   description,
   onClose,
@@ -15,6 +17,7 @@ export default function Modal({
   footer,
   size = 'md',
 }: {
+  open?: boolean;
   title: string;
   description?: string;
   onClose: () => void;
@@ -23,6 +26,19 @@ export default function Modal({
   footer?: ReactNode;
   size?: keyof typeof SIZES;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/50 p-4 backdrop-blur-[2px] animate-[admin-backdrop-in_150ms_ease-out]"

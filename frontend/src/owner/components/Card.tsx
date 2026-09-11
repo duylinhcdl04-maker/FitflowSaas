@@ -11,7 +11,7 @@ export default function Card({
 }) {
   return (
     <div
-      className={`rounded-3xl border border-stone-200/70 bg-white shadow-sm shadow-stone-950/[0.03] dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none ${padded ? 'p-6' : ''} ${className}`}
+      className={`rounded-2xl border border-stone-200/80 bg-white text-zinc-900 shadow-2xs dark:border-zinc-800/80 dark:bg-zinc-900 dark:text-zinc-50 ${padded ? 'p-6' : ''} ${className}`}
     >
       {children}
     </div>

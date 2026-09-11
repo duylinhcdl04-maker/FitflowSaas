@@ -1,11 +1,17 @@
-import React from 'react';
 import { TrendUp, TrendDown } from '@phosphor-icons/react';
+import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 
 interface SaaSStatCardProps {
   title: string;
   value: string | number;
   unit?: string;
-  icon: React.ElementType;
+  // Trước là `React.ElementType` (bất kỳ thứ gì render được, kể cả thẻ intrinsic tuỳ ý) —
+  // quá lỏng: TS phải hợp nhất props hợp lệ của MỌI intrinsic element khi render <Icon ...
+  // weight="duotone" />, và từ khi thêm @react-three/fiber (mở rộng global
+  // JSX.IntrinsicElements với ~300 thẻ three.js), phần giao đó suy biến thành `never`. Icon ở
+  // đây trên thực tế luôn là icon Phosphor — khai đúng kiểu ấy để hết xung đột, không đổi
+  // hành vi runtime.
+  icon: PhosphorIcon;
   iconColor?: string;
   iconBg?: string;
   subText?: string;

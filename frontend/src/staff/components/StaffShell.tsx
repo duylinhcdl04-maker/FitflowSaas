@@ -27,6 +27,7 @@ import { joinBranch } from '../../lib/socket';
 import NotificationBell from '../../owner/components/NotificationBell';
 import PortalSwitcher from '../../owner/components/PortalSwitcher';
 import BranchSwitcher from '../../manager/components/BranchSwitcher';
+import NetworkStatusBadge from '../../components/NetworkStatusBadge';
 
 function getBrandInitials(name: string) {
   if (!name) return 'FF';
@@ -203,6 +204,9 @@ export default function StaffShell() {
                 <span>Cổng Owner</span>
               </button>
             )}
+
+            {/* Network Offline / Syncing Status Badge */}
+            <NetworkStatusBadge />
 
             {/* Portal Switcher Dropdown */}
             <PortalSwitcher variant="compact" />

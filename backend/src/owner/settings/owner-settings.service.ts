@@ -8,6 +8,7 @@ import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { UpdatePaymentAccountDto } from './dto/update-payment-account.dto';
 import { UpdateAutoCheckoutPolicyDto } from './dto/update-auto-checkout-policy.dto';
 import { AutoCheckoutPolicyService } from '../../auto-checkout/auto-checkout-policy.service';
+import { EntitlementService } from '../../entitlement/entitlement.service';
 
 const CHECKIN_CONFIG_KEY = 'checkin_methods';
 const DEFAULT_CHECKIN_CONFIG = { qr: true, manual: true, face: false };
@@ -31,6 +32,7 @@ export class OwnerSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly autoCheckoutPolicy: AutoCheckoutPolicyService,
+    private readonly entitlementService: EntitlementService,
   ) {}
 
   // Auto check-out policy (OW-xx): forgotten check-ins/guest visits get closed automatically,
@@ -121,24 +123,13 @@ export class OwnerSettingsService {
     dto: UpdateCheckinConfigDto,
     actor: RequestUser,
   ) {
-    if (dto.qr)
-      await this.assertFeatureEnabled(
-        tenantId,
-        'QR_CHECKIN',
-        'Check-in bằng QR',
-      );
-    // TODO(face-checkin Phase 0 tạm thời): platform_features/saas_plan_features/addons
-    // đang có 0 dòng trong DB (toàn bộ hệ thống entitlement chưa được seed, không riêng
-    // FACE_RECOGNITION — xem backend/docs/face-checkin.md §6) nên assertFeatureEnabled sẽ
-    // luôn throw. FACE_CHECKIN_ENABLED cho phép bật tính năng để dev/demo nội bộ trước khi
-    // seed entitlement "đúng chuẩn" (Hướng A trong tài liệu). Mặc định env không set =>
-    // hành vi giữ nguyên y hệt trước đây (luôn kiểm tra entitlement thật).
-    if (dto.face && process.env.FACE_CHECKIN_ENABLED !== 'true')
-      await this.assertFeatureEnabled(
-        tenantId,
-        'FACE_RECOGNITION',
-        'Nhận diện khuôn mặt',
-      );
+    // Hướng A (backend/docs/face-checkin.md §6) đã hoàn tất cho mọi plan — TRIAL/STARTER/
+    // GROWTH/ENTERPRISE đều có đủ dòng saas_plan_features, nên kiểm tra entitlement thật
+    // qua EntitlementService dùng chung (bypass FACE_CHECKIN_ENABLED trước đây không còn
+    // cần thiết và đã bị xoá).
+    if (dto.qr) await this.entitlementService.assertFeatureEnabled(tenantId, 'QR_CHECKIN');
+    if (dto.face)
+      await this.entitlementService.assertFeatureEnabled(tenantId, 'FACE_RECOGNITION');
 
     const value = { qr: dto.qr, manual: true, face: dto.face };
     await this.prisma.tenantSettings.upsert({
@@ -205,31 +196,6 @@ export class OwnerSettingsService {
       packageCreated: packageCount > 0,
       checkinConfigured: checkinConfigured > 0,
     };
-  }
-
-  private async assertFeatureEnabled(
-    tenantId: string,
-    featureCode: string,
-    label: string,
-  ) {
-    const subscription = await this.prisma.subscription.findUnique({
-      where: { tenant_id: tenantId },
-      include: {
-        saas_plans: {
-          include: {
-            saas_plan_features: { include: { platform_features: true } },
-          },
-        },
-      },
-    });
-    const enabled = subscription?.saas_plans.saas_plan_features.some(
-      (f) => f.platform_features.code === featureCode && f.is_enabled,
-    );
-    if (!enabled) {
-      throw new BadRequestException(
-        `Gói hiện tại chưa mở khoá tính năng "${label}"`,
-      );
-    }
   }
 
   // Tenant settings

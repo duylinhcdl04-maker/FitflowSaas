@@ -121,9 +121,12 @@ model Addon {
   effect_amount         Int?
   compatible_plan_codes String[]            @default([])
   status                String              @default("ACTIVE") @db.VarChar(20)
+  addon_type            String              @default("RESOURCE") @db.VarChar(30)
   created_at            DateTime            @default(now()) @db.Timestamptz(6)
   updated_at            DateTime            @default(now()) @db.Timestamptz(6)
   subscription_addons   SubscriptionAddon[]
+  addon_quotas          AddonQuota[]
+  addon_features        AddonFeature[]
 
   @@map("addons")
 }
@@ -198,6 +201,7 @@ model PlatformFeature {
   module             String?           @db.VarChar(50)
   created_at         DateTime          @default(now()) @db.Timestamptz(6)
   saas_plan_features SaasPlanFeature[]
+  addon_features     AddonFeature[]
 
   @@map("platform_features")
 }
@@ -207,6 +211,12 @@ model SaasPlan {
   code                 String            @unique @db.VarChar(30)
   name                 String            @db.VarChar(100)
   description          String?
+  slogan               String?
+  target_audience      String?
+  is_popular           Boolean           @default(false)
+  badge_text           String?           @db.VarChar(50)
+  support_tier         String            @default("COMMUNITY") @db.VarChar(30)
+  cta_text             String?           @db.VarChar(50)
   billing_cycle        String            @default("MONTHLY") @db.VarChar(20)
   price                Decimal           @default(0) @db.Decimal(15, 2)
   currency             String            @default("VND") @db.Char(3)
@@ -218,10 +228,103 @@ model SaasPlan {
   updated_at           DateTime          @default(now()) @db.Timestamptz(6)
   billing_cycle_months Int?              @db.SmallInt
   saas_plan_features   SaasPlanFeature[]
+  plan_prices          PlanPrice[]
+  plan_quotas          PlanQuota[]
+  plan_integrations    PlanIntegration[]
   subscriptions        Subscription[]
   target_plan_invoices saas_invoices[]
 
   @@map("saas_plans")
+}
+
+model PlanPrice {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plan_id              String   @db.Uuid
+  billing_cycle        String   @db.VarChar(20)
+  billing_cycle_months Int      @db.SmallInt
+  price                Decimal  @default(0) @db.Decimal(15, 2)
+  currency             String   @default("VND") @db.Char(3)
+  discount_percentage  Decimal  @default(0) @db.Decimal(5, 2)
+  is_active            Boolean  @default(true)
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @default(now()) @db.Timestamptz(6)
+  saas_plans           SaasPlan @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([plan_id, billing_cycle_months])
+  @@index([plan_id], map: "ix_plan_prices_plan")
+  @@map("plan_prices")
+}
+
+model PlatformQuota {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String        @unique @db.VarChar(50)
+  name         String        @db.VarChar(100)
+  description  String?
+  unit         String        @db.VarChar(30)
+  module       String        @db.VarChar(50)
+  created_at   DateTime      @default(now()) @db.Timestamptz(6)
+  plan_quotas  PlanQuota[]
+  addon_quotas AddonQuota[]
+
+  @@map("platform_quotas")
+}
+
+model PlanQuota {
+  plan_id         String        @db.Uuid
+  quota_id        String        @db.Uuid
+  mode            String        @default("LIMITED") @db.VarChar(20)
+  quota_value     Int?
+  saas_plans      SaasPlan      @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  platform_quotas PlatformQuota @relation(fields: [quota_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([plan_id, quota_id])
+  @@map("plan_quotas")
+}
+
+model PlatformIntegration {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code              String            @unique @db.VarChar(50)
+  name              String            @db.VarChar(100)
+  description       String?
+  category          String            @db.VarChar(50)
+  icon              String?           @db.VarChar(50)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  plan_integrations PlanIntegration[]
+
+  @@map("platform_integrations")
+}
+
+model PlanIntegration {
+  plan_id               String              @db.Uuid
+  integration_id        String              @db.Uuid
+  is_enabled            Boolean             @default(false)
+  config_options        Json?
+  saas_plans            SaasPlan            @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  platform_integrations PlatformIntegration @relation(fields: [integration_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([plan_id, integration_id])
+  @@map("plan_integrations")
+}
+
+model AddonQuota {
+  addon_id        String        @db.Uuid
+  quota_id        String        @db.Uuid
+  added_value     Int
+  addons          Addon         @relation(fields: [addon_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  platform_quotas PlatformQuota @relation(fields: [quota_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([addon_id, quota_id])
+  @@map("addon_quotas")
+}
+
+model AddonFeature {
+  addon_id          String          @db.Uuid
+  feature_id        String          @db.Uuid
+  addons            Addon           @relation(fields: [addon_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  platform_features PlatformFeature @relation(fields: [feature_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([addon_id, feature_id])
+  @@map("addon_features")
 }
 
 model SaasPlanFeature {

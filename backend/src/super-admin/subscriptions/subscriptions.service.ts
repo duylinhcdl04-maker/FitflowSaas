@@ -12,17 +12,21 @@ import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 // The four countable quotas tracked today (mirrors tenants.service.ts's
 // QUOTA_FEATURE_CODES for SA-03 Tab "Hạn mức" — kept in sync manually since
 // this module doesn't depend on TenantsService).
+// NB: 'MAX_MEMBERS' — not 'MAX_CUSTOMERS' — is the real platform_quotas.code (see
+// prisma/seed-saas-plans-and-entitlements.ts and EntitlementService.getCurrentQuotaValue).
+// This map used to say 'MAX_CUSTOMERS', which never matched any catalog row, so the
+// member-count quota check below was silently a no-op for every plan-change request.
 const QUOTA_FEATURE_CODES = [
   'MAX_BRANCHES',
   'MAX_STAFF',
   'MAX_PT',
-  'MAX_CUSTOMERS',
+  'MAX_MEMBERS',
 ] as const;
 const QUOTA_LABELS: Record<(typeof QUOTA_FEATURE_CODES)[number], string> = {
   MAX_BRANCHES: 'Chi nhánh',
   MAX_STAFF: 'Nhân sự',
   MAX_PT: 'Huấn luyện viên',
-  MAX_CUSTOMERS: 'Hội viên',
+  MAX_MEMBERS: 'Hội viên',
 };
 
 @Injectable()
@@ -77,8 +81,14 @@ export class SubscriptionsService {
           saas_plan_features: { include: { platform_features: true } },
         },
       }),
-      this.prisma.user_roles.count({
-        where: { tenant_id: tenantId, roles: { code: ROLE.PT } },
+      this.prisma.user.count({
+        where: {
+          tenant_id: tenantId,
+          OR: [
+            { pt_profiles: { isNot: null } },
+            { user_roles: { some: { roles: { code: { in: [ROLE.PT, 'PT', 'PERSONAL_TRAINER'] } } } } },
+          ],
+        },
       }),
       this.getByTenant(tenantId),
     ]);
@@ -94,7 +104,7 @@ export class SubscriptionsService {
       MAX_BRANCHES: tenant._count.branches,
       MAX_STAFF: tenant._count.users,
       MAX_PT: ptCount,
-      MAX_CUSTOMERS: tenant._count.customers,
+      MAX_MEMBERS: tenant._count.customers,
     };
 
     const targetByCode = new Map(

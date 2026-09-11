@@ -20,7 +20,6 @@ import {
   CaretLeft,
   CaretRight,
   Storefront,
-  Barbell,
 } from '@phosphor-icons/react';
 import { useAuthStore } from '../store/auth-store';
 import { logout } from '../api/auth';
@@ -28,6 +27,7 @@ import { getDashboardOverview } from '../api/dashboard';
 import Tooltip from './Tooltip';
 import NotificationBell from './NotificationBell';
 import PortalSwitcher from './PortalSwitcher';
+import NetworkStatusBadge from '../../components/NetworkStatusBadge';
 import { showConfirm, showToast } from '../utils/swal';
 
 const NAV_LINKS = [
@@ -321,6 +321,9 @@ export default function OwnerShell() {
               <Storefront size={16} weight="fill" />
               <span>Quầy Lễ tân (POS)</span>
             </button>
+
+            {/* Network Status Badge */}
+            <NetworkStatusBadge />
 
             {/* Portal Switcher Dropdown (KiotViet style) */}
             <PortalSwitcher variant="header" />

@@ -138,10 +138,10 @@ async function main() {
   }
 
   const defaultPlans = [
-    { code: 'TRIAL', name: 'Gói Dùng Thử 14 Ngày', price: 0, trial_days: 14, is_public: true, description: 'Gói trải nghiệm dùng thử 14 ngày cho chủ phòng tập mới' },
-    { code: 'BASIC', name: 'Gói Cơ Bản', price: 490000, trial_days: 14, is_public: true, description: 'Dành cho phòng tập quy mô nhỏ' },
-    { code: 'PRO', name: 'Gói Chuyên Nghiệp', price: 990000, trial_days: 14, is_public: true, description: 'Dành cho phòng tập quy mô vừa và chuỗi chi nhánh' },
-    { code: 'ENTERPRISE', name: 'Gói Doanh Nghiệp', price: 2490000, trial_days: 30, is_public: true, description: 'Dành cho chuỗi phòng tập lớn' },
+    { code: 'TRIAL', name: 'Gói Dùng Thử 14 Ngày', price: 0, trial_days: 14, is_public: true, description: 'Gói trải nghiệm miễn phí 14 ngày cho chủ phòng tập mới' },
+    { code: 'BASIC', name: 'Gói Cơ Bản (Starter)', price: 490000, trial_days: 0, is_public: true, description: 'Giải pháp số hóa tinh gọn cho phòng tập đơn điểm, Yoga/Pilates studio quy mô nhỏ (dưới 300 hội viên)' },
+    { code: 'PRO', name: 'Gói Chuyên Nghiệp (Growth)', price: 990000, trial_days: 0, is_public: true, description: 'Giải pháp toàn diện tối ưu doanh thu cho trung tâm thể hình chuyên nghiệp, tích hợp Camera AI Face ID và giáo án PT' },
+    { code: 'ENTERPRISE', name: 'Gói Doanh Nghiệp (Enterprise)', price: 2490000, trial_days: 0, is_public: true, description: 'Hệ thống quản trị hợp nhất chuỗi phòng gym quy mô lớn & nhượng quyền, mở rộng Open API & Webhook' },
   ];
 
   for (const p of defaultPlans) {

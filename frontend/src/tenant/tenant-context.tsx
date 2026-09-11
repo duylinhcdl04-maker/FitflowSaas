@@ -30,14 +30,27 @@ const TenantContext = createContext<TenantContextValue | undefined>(undefined);
 const TENANT_STORAGE_KEY = 'fitflow_tenant_context';
 const TENANT_COOKIE_NAME = 'fitflow_tenant';
 
+export const RESERVED_SUBDOMAINS = ['www', 'api', 'admin', 'mail', 'cdn', 'app', 'static'];
+
+/**
+ * Kiểm tra xem hostname hiện tại có phải là subdomain quản trị (admin.fitfloww.store, admin.localhost...) hay không
+ */
+export function isAdminSubdomain(): boolean {
+  const hostname = window.location.hostname;
+  if (!hostname) return false;
+  if (hostname === 'admin.localhost' || hostname.startsWith('admin.')) return true;
+  const parts = hostname.split('.');
+  if (parts.length > 2 && parts[0].toLowerCase() === 'admin') return true;
+  return false;
+}
+
 /**
  * Phân tích subdomain từ hostname hiện tại:
  * - yoyo.localhost:5173 -> "yoyo"
- * - yoyo.fitflow.io.vn -> "yoyo"
+ * - yoyo.fitfloww.store -> "yoyo"
+ * - admin.fitfloww.store -> null (reserved)
  * - localhost:5173 -> null
- * - 127.0.0.1:5173 -> null
- * - fitflow.io.vn -> null
- * - www.fitflow.io.vn -> null
+ * - fitfloww.store -> null
  */
 export function getTenantSlugFromHostname(): string | null {
   const hostname = window.location.hostname;
@@ -46,7 +59,7 @@ export function getTenantSlugFromHostname(): string | null {
   // Localhost test pattern (e.g. yoyo.localhost)
   if (hostname.endsWith('.localhost')) {
     const sub = hostname.replace(/\.localhost$/, '');
-    if (sub && sub !== 'www' && sub !== 'api') return sub.toLowerCase();
+    if (sub && !RESERVED_SUBDOMAINS.includes(sub.toLowerCase())) return sub.toLowerCase();
     return null;
   }
 
@@ -54,7 +67,7 @@ export function getTenantSlugFromHostname(): string | null {
   const parts = hostname.split('.');
   if (parts.length > 2) {
     const sub = parts[0];
-    if (sub && sub !== 'www' && sub !== 'api') return sub.toLowerCase();
+    if (sub && !RESERVED_SUBDOMAINS.includes(sub.toLowerCase())) return sub.toLowerCase();
   }
 
   return null;

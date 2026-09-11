@@ -83,7 +83,7 @@ export default function ForgotPasswordModal({
     <Modal open={open} onClose={handleClose} title="Quên mật khẩu">
       {successMessage ? (
         <div className="flex flex-col gap-4 text-center py-2">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold text-xl">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 font-bold text-xl">
             ✓
           </div>
           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{successMessage}</p>
@@ -94,16 +94,16 @@ export default function ForgotPasswordModal({
       ) : step === 1 ? (
         <form onSubmit={handleRequestOtpSubmit} className="flex flex-col gap-4">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Nhập địa chỉ email đăng ký tài khoản Owner của bạn. Chúng tôi sẽ gửi mã xác thực OTP gồm 6 chữ số đến email này.
+            Nhập địa chỉ email đăng ký tài khoản của bạn. Chúng tôi sẽ gửi mã xác thực OTP gồm 6 chữ số đến email này để đặt lại mật khẩu.
           </p>
 
-          <FormField label="Email tài khoản Owner *" htmlFor="forgot-email">
+          <FormField label="Địa chỉ Email đăng ký *" htmlFor="forgot-email">
             <input
               id="forgot-email"
               type="email"
               required
               className={inputClass}
-              placeholder="owner@example.com"
+              placeholder="email@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -169,7 +169,7 @@ export default function ForgotPasswordModal({
                 requestOtpMutation.mutate();
               }}
               disabled={requestOtpMutation.isPending}
-              className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+              className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400"
             >
               {requestOtpMutation.isPending ? 'Đang gửi lại...' : 'Gửi lại mã OTP'}
             </button>

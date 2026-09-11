@@ -1,39 +1,50 @@
 import type { ReactNode } from 'react';
-import { Buildings, ChartLineUp, UsersThree } from '@phosphor-icons/react';
+import { Buildings, ChartLineUp, UsersThree, Lightning } from '@phosphor-icons/react';
 import BrandBadge from './BrandBadge';
 
 const HIGHLIGHTS = [
   { icon: Buildings, label: 'Quản lý đa chi nhánh trong một nơi duy nhất' },
   { icon: UsersThree, label: 'Theo dõi hội viên, PT và lịch tập real-time' },
-  { icon: ChartLineUp, label: 'Báo cáo doanh thu tự động, không cần Excel' },
+  { icon: ChartLineUp, label: 'Báo cáo doanh thu tự động, đối soát VietQR' },
 ];
 
-// Khung dùng chung cho toàn bộ luồng đăng nhập/đăng ký (FindStore, Login,
-// Register, VerifyOtp, Welcome) — bố cục split-screen: panel thương hiệu bên
-// trái (ẩn dưới lg) + form bên phải, thay cho một thẻ nhỏ nằm giữa nền phẳng.
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-dvh bg-stone-50 dark:bg-zinc-950">
-      <aside className="relative hidden w-[40%] shrink-0 overflow-hidden bg-gradient-to-br from-emerald-800 via-emerald-700 to-emerald-950 lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
-        <div aria-hidden className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-emerald-400/30 blur-[100px]" />
-        <div aria-hidden className="pointer-events-none absolute -bottom-32 -right-16 h-80 w-80 rounded-full bg-emerald-950/60 blur-[110px]" />
-        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.08)_1px,transparent_0)] bg-[length:28px_28px]" />
+    <div className="flex min-h-dvh bg-[#070609] text-[#F5F3F7]">
+      {/* Left Branding Showcase (Desktop) */}
+      <aside className="relative hidden w-[42%] shrink-0 overflow-hidden bg-gradient-to-br from-[#120D1D] via-[#1A122B] to-[#0A0710] border-r border-white/8 lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
+        {/* Background Ambient Glows */}
+        <div aria-hidden className="pointer-events-none absolute -left-20 -top-20 h-80 w-80 rounded-full bg-purple-600/25 blur-[120px]" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-32 -right-16 h-96 w-96 rounded-full bg-purple-900/30 blur-[140px]" />
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.06)_1px,transparent_0)] bg-[length:24px_24px]" />
 
-        <div className="relative flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base font-bold text-white ring-1 ring-white/20 backdrop-blur">
-            F
-          </span>
-          <span className="font-display text-lg font-bold text-white">FitFlow</span>
+        {/* Brand Header */}
+        <div className="relative flex items-center gap-3">
+          <a href="/" className="flex items-center gap-2.5 group">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600/30 border border-purple-500/40 text-purple-300 shadow-[0_0_20px_rgba(168,85,247,0.3)]">
+              <Lightning size={20} weight="fill" />
+            </span>
+            <span className="font-['Be_Vietnam_Pro',sans-serif] text-2xl font-black tracking-tight text-white uppercase group-hover:text-purple-300 transition-colors">
+              FitFlow
+            </span>
+          </a>
         </div>
 
-        <div className="relative flex flex-col gap-8">
-          <h2 className="font-display max-w-sm text-3xl leading-tight font-bold tracking-tight text-white xl:text-4xl">
-            Vận hành phòng gym gọn gàng hơn mỗi ngày
-          </h2>
+        {/* Value Proposition Highlights */}
+        <div className="relative flex flex-col gap-8 my-auto py-10">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-950/60 border border-purple-500/30 text-[11px] font-semibold text-purple-300 uppercase tracking-wider mb-4">
+              NỀN TẢNG QUẢN TRỊ FITNESS
+            </div>
+            <h2 className="font-['Be_Vietnam_Pro',sans-serif] max-w-sm text-3xl xl:text-4xl leading-tight font-extrabold tracking-tight text-white">
+              Vận hành phòng gym gọn gàng & bứt phá quy mô
+            </h2>
+          </div>
+
           <ul className="flex flex-col gap-4">
             {HIGHLIGHTS.map((item) => (
-              <li key={item.label} className="flex items-center gap-3 text-sm text-emerald-50/90">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15">
+              <li key={item.label} className="flex items-center gap-3.5 text-sm font-['Plus_Jakarta_Sans',sans-serif] text-[#C5C0CD]">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-purple-950/80 border border-purple-500/25 text-purple-400">
                   <item.icon size={18} weight="fill" />
                 </span>
                 {item.label}
@@ -42,19 +53,34 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           </ul>
         </div>
 
-        <p className="relative text-xs text-emerald-100/60">© {new Date().getFullYear()} FitFlow. Nền tảng quản lý phòng gym.</p>
+        {/* Footer */}
+        <div className="relative flex items-center justify-between text-xs text-[#7A7485]">
+          <span>© {new Date().getFullYear()} FitFlow Inc.</span>
+          <span className="text-emerald-400 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            Máy chủ hoạt động 100%
+          </span>
+        </div>
       </aside>
 
-      <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-4 py-10">
+      {/* Right Form Body */}
+      <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-4 py-12">
         <div
           aria-hidden
-          className="pointer-events-none absolute left-1/2 top-[-10rem] h-[24rem] w-[24rem] -translate-x-1/2 rounded-full bg-emerald-400/15 blur-[100px] lg:hidden dark:bg-emerald-500/10"
+          className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 h-[28rem] w-[28rem] rounded-full bg-purple-600/15 blur-[140px]"
         />
-        <div className="relative mb-6 flex items-center gap-2.5 lg:hidden">
+
+        {/* Mobile Header */}
+        <div className="relative mb-8 flex items-center gap-2.5 lg:hidden">
           <BrandBadge />
-          <span className="font-display text-lg font-bold text-zinc-900 dark:text-zinc-50">FitFlow</span>
+          <span className="font-['Be_Vietnam_Pro',sans-serif] text-2xl font-black tracking-tight text-white">
+            FitFlow
+          </span>
         </div>
-        {children}
+
+        <div className="relative w-full max-w-md">
+          {children}
+        </div>
       </div>
     </div>
   );

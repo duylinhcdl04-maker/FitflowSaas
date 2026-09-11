@@ -22,5 +22,6 @@
         "trách",
         "viên",
         "xuất"
-    ]
+    ],
+    "css.lint.unknownAtRules": "ignore"
 }

@@ -236,7 +236,7 @@ export class OwnerAuthService {
   async resendByEmail(dto: ResendOtpByEmailDto) {
     const user = await this.prisma.user.findFirst({
       where: {
-        user_type: 'TENANT',
+        user_type: { in: ['TENANT', 'CUSTOMER'] },
         email: { equals: dto.email, mode: 'insensitive' },
       },
     });
@@ -278,11 +278,20 @@ export class OwnerAuthService {
   async forgotPassword(dto: ForgotPasswordDto) {
     const user = await this.prisma.user.findFirst({
       where: {
-        user_type: 'TENANT',
+        user_type: { in: ['TENANT', 'CUSTOMER'] },
         email: { equals: dto.email, mode: 'insensitive' },
       },
     });
     if (!user) {
+      // Check if Customer exists in customers table without a user account
+      const customer = await this.prisma.customer.findFirst({
+        where: { email: { equals: dto.email, mode: 'insensitive' } },
+      });
+      if (customer) {
+        throw new BadRequestException(
+          'Hồ sơ hội viên này chưa được khởi tạo tài khoản đăng nhập. Vui lòng liên hệ quầy lễ tân để kích hoạt tài khoản.',
+        );
+      }
       throw new NotFoundException('Không tìm thấy tài khoản với email này');
     }
     if (user.status !== 'ACTIVE') {

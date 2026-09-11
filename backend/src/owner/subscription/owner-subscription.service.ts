@@ -53,8 +53,14 @@ export class OwnerSubscriptionService {
       this.prisma.user.count({
         where: { tenant_id: tenantId, user_type: 'TENANT' },
       }),
-      this.prisma.user_roles.count({
-        where: { tenant_id: tenantId, roles: { code: ROLE.PT } },
+      this.prisma.user.count({
+        where: {
+          tenant_id: tenantId,
+          OR: [
+            { pt_profiles: { isNot: null } },
+            { user_roles: { some: { roles: { code: { in: [ROLE.PT, 'PT', 'PERSONAL_TRAINER'] } } } } },
+          ],
+        },
       }),
       this.prisma.customer.count({ where: { tenant_id: tenantId } }),
     ]);

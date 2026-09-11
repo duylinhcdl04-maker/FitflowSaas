@@ -14,26 +14,35 @@ import StaffApp from './staff/StaffApp.tsx'
 import PtApp from './pt/PtApp.tsx'
 import CustomerApp from './customer/CustomerApp.tsx'
 
-import { TenantProvider } from './tenant/tenant-context.tsx'
+import { TenantProvider, isAdminSubdomain } from './tenant/tenant-context.tsx'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 })
+
+const isAdmin = isAdminSubdomain()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <TenantProvider>
-          <Routes>
-            <Route path="/" element={<App />} />
-            <Route path="/admin/*" element={<AdminApp />} />
-            <Route path="/owner/*" element={<OwnerApp />} />
-            <Route path="/manager/*" element={<ManagerApp />} />
-            <Route path="/staff/*" element={<StaffApp />} />
-            <Route path="/pt/*" element={<PtApp />} />
-            <Route path="/customer/*" element={<CustomerApp />} />
-          </Routes>
+          {isAdmin ? (
+            <Routes>
+              <Route path="/*" element={<AdminApp />} />
+              <Route path="/admin/*" element={<AdminApp />} />
+            </Routes>
+          ) : (
+            <Routes>
+              <Route path="/" element={<App />} />
+              <Route path="/admin/*" element={<AdminApp />} />
+              <Route path="/owner/*" element={<OwnerApp />} />
+              <Route path="/manager/*" element={<ManagerApp />} />
+              <Route path="/staff/*" element={<StaffApp />} />
+              <Route path="/pt/*" element={<PtApp />} />
+              <Route path="/customer/*" element={<CustomerApp />} />
+            </Routes>
+          )}
         </TenantProvider>
       </BrowserRouter>
     </QueryClientProvider>

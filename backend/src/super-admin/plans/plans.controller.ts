@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -20,12 +21,18 @@ import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { UpsertPlanFeaturesDto } from './dto/upsert-plan-features.dto';
 import { ApplyPlanToSubscriptionsDto } from './dto/apply-plan-to-subscriptions.dto';
+import { SavePlanConfigDto } from './dto/save-plan-config.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(ROLE.SUPER_ADMIN)
 @Controller('super-admin')
 export class PlansController {
   constructor(private readonly plansService: PlansService) {}
+
+  @Get('platform-catalog')
+  getPlatformCatalog() {
+    return this.plansService.getPlatformCatalog();
+  }
 
   @Get('platform-features')
   listFeatures() {
@@ -50,6 +57,40 @@ export class PlansController {
   @Post('plans')
   createPlan(@Body() dto: CreatePlanDto, @CurrentUser() actor: RequestUser) {
     return this.plansService.createPlan(dto, actor);
+  }
+
+  @Put('plans/:id/config')
+  savePlanConfiguration(
+    @Param('id') id: string,
+    @Body() dto: SavePlanConfigDto,
+    @CurrentUser() actor: RequestUser,
+  ) {
+    return this.plansService.savePlanConfiguration(id, dto, actor);
+  }
+
+  @Post('plans/:id/validate')
+  validatePlan(@Param('id') id: string) {
+    return this.plansService.validatePlanForPublish(id);
+  }
+
+  @Post('plans/:id/publish')
+  publishPlan(@Param('id') id: string, @CurrentUser() actor: RequestUser) {
+    return this.plansService.publishPlan(id, actor);
+  }
+
+  @Post('plans/:id/archive')
+  archivePlan(@Param('id') id: string, @CurrentUser() actor: RequestUser) {
+    return this.plansService.archivePlan(id, actor);
+  }
+
+  @Delete('plans/:id')
+  deletePlan(@Param('id') id: string, @CurrentUser() actor: RequestUser) {
+    return this.plansService.deletePlan(id, actor);
+  }
+
+  @Post('plans/:id/duplicate')
+  duplicatePlan(@Param('id') id: string, @CurrentUser() actor: RequestUser) {
+    return this.plansService.duplicatePlan(id, actor);
   }
 
   @Patch('plans/:id')
