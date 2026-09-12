@@ -33,9 +33,12 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/admin/*" element={<AdminApp />} />
             </Routes>
           ) : (
+            // Cố ý KHÔNG có route /admin/* ở đây — Admin (SuperAdmin) chỉ được
+            // truy cập qua đúng subdomain admin.* (isAdminSubdomain() ở nhánh
+            // trên), không cho phép truy cập từ subdomain của bất kỳ Tenant
+            // nào (vd. yoyo.localhost/admin, yoyo.fitfloww.store/admin).
             <Routes>
               <Route path="/" element={<App />} />
-              <Route path="/admin/*" element={<AdminApp />} />
               <Route path="/owner/*" element={<OwnerApp />} />
               <Route path="/manager/*" element={<ManagerApp />} />
               <Route path="/staff/*" element={<StaffApp />} />

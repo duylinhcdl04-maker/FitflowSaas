@@ -261,7 +261,8 @@ export default function PlanLimitsSection({
                               <InfinityIcon className="mr-1.5 h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                               Không giới hạn
                             </div>
-                          <div className="flex h-9 items-center rounded-lg border border-zinc-200 bg-white shadow-xs focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900">
+                          ) : (
+                            <div className="flex h-9 items-center rounded-lg border border-zinc-200 bg-white shadow-xs focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900">
                             <input
                               type="number"
                               min={0}
