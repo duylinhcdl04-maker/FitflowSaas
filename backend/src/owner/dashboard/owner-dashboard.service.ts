@@ -140,7 +140,14 @@ export class OwnerDashboardService {
           payment_type: true,
           method: true,
           payment_code: true,
-          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
+          customers: {
+            select: {
+              id: true,
+              full_name: true,
+              phone: true,
+              customer_code: true,
+            },
+          },
           branches: { select: { id: true, name: true } },
         },
       }),
@@ -154,7 +161,14 @@ export class OwnerDashboardService {
           check_in_method: true,
           status: true,
           branches: { select: { id: true, name: true } },
-          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
+          customers: {
+            select: {
+              id: true,
+              full_name: true,
+              phone: true,
+              customer_code: true,
+            },
+          },
         },
       }),
       this.prisma.membership.findMany({
@@ -168,7 +182,14 @@ export class OwnerDashboardService {
           start_date: true,
           end_date: true,
           status: true,
-          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
+          customers: {
+            select: {
+              id: true,
+              full_name: true,
+              phone: true,
+              customer_code: true,
+            },
+          },
           branches: { select: { id: true, name: true } },
         },
       }),
@@ -207,7 +228,14 @@ export class OwnerDashboardService {
           start_date: true,
           end_date: true,
           status: true,
-          customers: { select: { id: true, full_name: true, phone: true, customer_code: true } },
+          customers: {
+            select: {
+              id: true,
+              full_name: true,
+              phone: true,
+              customer_code: true,
+            },
+          },
           branches: { select: { id: true, name: true } },
         },
       }),
@@ -243,15 +271,28 @@ export class OwnerDashboardService {
       recentMemberships,
     );
 
-    const [activeMemCount, expiringSoonMemCount, expiredMemCount, totalMemCount] = await Promise.all([
+    const [
+      activeMemCount,
+      expiringSoonMemCount,
+      expiredMemCount,
+      totalMemCount,
+    ] = await Promise.all([
       this.prisma.membership.count({
-        where: { tenant_id: tenantId, status: 'ACTIVE', end_date: { gt: this.addDays(this.startOfDay(new Date()), 7) }, ...branchFilter },
+        where: {
+          tenant_id: tenantId,
+          status: 'ACTIVE',
+          end_date: { gt: this.addDays(this.startOfDay(new Date()), 7) },
+          ...branchFilter,
+        },
       }),
       this.prisma.membership.count({
         where: {
           tenant_id: tenantId,
           status: 'ACTIVE',
-          end_date: { gte: this.startOfDay(new Date()), lte: this.addDays(this.startOfDay(new Date()), 7) },
+          end_date: {
+            gte: this.startOfDay(new Date()),
+            lte: this.addDays(this.startOfDay(new Date()), 7),
+          },
           ...branchFilter,
         },
       }),
@@ -264,32 +305,80 @@ export class OwnerDashboardService {
     ]);
 
     const membershipStatusBreakdown = [
-      { label: 'Đang hoạt động', count: activeMemCount, pct: totalMemCount ? Math.round((activeMemCount / totalMemCount) * 100) : 0, color: 'bg-emerald-500' },
-      { label: 'Sắp hết hạn (7 ngày)', count: expiringSoonMemCount, pct: totalMemCount ? Math.round((expiringSoonMemCount / totalMemCount) * 100) : 0, color: 'bg-amber-500' },
-      { label: 'Hết hạn', count: expiredMemCount, pct: totalMemCount ? Math.round((expiredMemCount / totalMemCount) * 100) : 0, color: 'bg-rose-500' },
+      {
+        label: 'Đang hoạt động',
+        count: activeMemCount,
+        pct: totalMemCount
+          ? Math.round((activeMemCount / totalMemCount) * 100)
+          : 0,
+        color: 'bg-emerald-500',
+      },
+      {
+        label: 'Sắp hết hạn (7 ngày)',
+        count: expiringSoonMemCount,
+        pct: totalMemCount
+          ? Math.round((expiringSoonMemCount / totalMemCount) * 100)
+          : 0,
+        color: 'bg-amber-500',
+      },
+      {
+        label: 'Hết hạn',
+        count: expiredMemCount,
+        pct: totalMemCount
+          ? Math.round((expiredMemCount / totalMemCount) * 100)
+          : 0,
+        color: 'bg-rose-500',
+      },
     ];
 
     const paymentsWithItems = await this.prisma.payment.findMany({
-      where: { tenant_id: tenantId, status: 'PAID', paid_at: { gte: from, lte: to }, ...branchFilter },
+      where: {
+        tenant_id: tenantId,
+        status: 'PAID',
+        paid_at: { gte: from, lte: to },
+        ...branchFilter,
+      },
       select: { total_amount: true, payment_type: true },
     });
 
     const pkgMap = new Map<string, number>();
     for (const p of paymentsWithItems) {
-      const label = p.payment_type === 'MEMBERSHIP' ? 'Gói Membership' : p.payment_type === 'PT' ? 'Gói PT' : 'Vé lượt / Khác';
+      const label =
+        p.payment_type === 'MEMBERSHIP'
+          ? 'Gói Membership'
+          : p.payment_type === 'PT'
+            ? 'Gói PT'
+            : 'Vé lượt / Khác';
       pkgMap.set(label, (pkgMap.get(label) ?? 0) + Number(p.total_amount));
     }
 
     const totalRev = Array.from(pkgMap.values()).reduce((sum, v) => sum + v, 0);
-    const revenueByPackageBreakdown = Array.from(pkgMap.entries()).map(([name, amount]) => ({
-      name,
-      amount,
-      pct: totalRev > 0 ? Math.round((amount / totalRev) * 100) : 0,
-    }));
+    const revenueByPackageBreakdown = Array.from(pkgMap.entries()).map(
+      ([name, amount]) => ({
+        name,
+        amount,
+        pct: totalRev > 0 ? Math.round((amount / totalRev) * 100) : 0,
+      }),
+    );
 
-    const membershipGrowthChart = await this.buildMembershipGrowthChart(tenantId, from, to, query.branchId);
-    const peakCheckinHours = await this.buildPeakCheckinHours(tenantId, from, to, query.branchId);
-    const peakCheckinDaysOfWeek = await this.buildPeakCheckinDaysOfWeek(tenantId, from, to, query.branchId);
+    const membershipGrowthChart = await this.buildMembershipGrowthChart(
+      tenantId,
+      from,
+      to,
+      query.branchId,
+    );
+    const peakCheckinHours = await this.buildPeakCheckinHours(
+      tenantId,
+      from,
+      to,
+      query.branchId,
+    );
+    const peakCheckinDaysOfWeek = await this.buildPeakCheckinDaysOfWeek(
+      tenantId,
+      from,
+      to,
+      query.branchId,
+    );
 
     return {
       context: { tenantId, branchId: query.branchId ?? null, from, to },
@@ -490,7 +579,11 @@ export class OwnerDashboardService {
   }) {
     const alerts: {
       id: string;
-      type: 'MEMBERSHIP_EXPIRING_TODAY' | 'MEMBERSHIP_EXPIRING_SOON' | 'QUOTA_BRANCH' | 'QUOTA_STAFF';
+      type:
+        | 'MEMBERSHIP_EXPIRING_TODAY'
+        | 'MEMBERSHIP_EXPIRING_SOON'
+        | 'QUOTA_BRANCH'
+        | 'QUOTA_STAFF';
       priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
       message: string;
       targetUrl?: string;
@@ -500,7 +593,8 @@ export class OwnerDashboardService {
 
     if (params.expiringTodayCount > 0) {
       const todayItems = params.expiringMembershipsList.filter(
-        (m) => new Date(m.end_date).toDateString() === new Date().toDateString(),
+        (m) =>
+          new Date(m.end_date).toDateString() === new Date().toDateString(),
       );
       alerts.push({
         id: 'alert-expiring-today',
@@ -508,7 +602,10 @@ export class OwnerDashboardService {
         priority: 'CRITICAL',
         message: `${params.expiringTodayCount} Membership hết hạn hôm nay`,
         targetUrl: '/owner/customers',
-        items: (todayItems.length > 0 ? todayItems : params.expiringMembershipsList).map((m) => ({
+        items: (todayItems.length > 0
+          ? todayItems
+          : params.expiringMembershipsList
+        ).map((m) => ({
           id: m.id,
           customerId: m.customers?.id,
           customerName: m.customers?.full_name || 'Hội viên',
@@ -530,7 +627,9 @@ export class OwnerDashboardService {
         message: `${params.expiringSoonCount} Membership hết hạn trong 7 ngày`,
         targetUrl: '/owner/customers',
         items: params.expiringMembershipsList.map((m) => {
-          const days = Math.ceil((new Date(m.end_date).getTime() - now.getTime()) / 86_400_000);
+          const days = Math.ceil(
+            (new Date(m.end_date).getTime() - now.getTime()) / 86_400_000,
+          );
           return {
             id: m.id,
             customerId: m.customers?.id,
@@ -547,10 +646,9 @@ export class OwnerDashboardService {
     }
 
     const quotaByCode = new Map(
-      (params.subscription?.saas_plans.saas_plan_features ?? []).map((f: any) => [
-        f.platform_features.code,
-        f.quota_value,
-      ]),
+      (params.subscription?.saas_plans.saas_plan_features ?? []).map(
+        (f: any) => [f.platform_features.code, f.quota_value],
+      ),
     );
     const maxBranches = quotaByCode.get('MAX_BRANCHES');
     const maxStaff = quotaByCode.get('MAX_STAFF');
@@ -676,10 +774,16 @@ export class OwnerDashboardService {
       ]),
     );
 
+    // Math.max(0, ...) — trước đây in số âm ("-2 ngày") khi Trial đã hết hạn;
+    // giờ đứng yên ở 0, phần "đã hết hạn hay chưa" nên dựa vào `accessMode`.
     const daysRemaining =
       subscription.status === 'TRIAL' && subscription.trial_ends_at
-        ? Math.ceil(
-            (subscription.trial_ends_at.getTime() - now.getTime()) / 86_400_000,
+        ? Math.max(
+            0,
+            Math.ceil(
+              (subscription.trial_ends_at.getTime() - now.getTime()) /
+                86_400_000,
+            ),
           )
         : null;
     const daysUntilRenewal =
@@ -710,7 +814,11 @@ export class OwnerDashboardService {
   ) {
     const branchFilter = branchId ? { branch_id: branchId } : {};
     const memberships = await this.prisma.membership.findMany({
-      where: { tenant_id: tenantId, created_at: { gte: from, lte: to }, ...branchFilter },
+      where: {
+        tenant_id: tenantId,
+        created_at: { gte: from, lte: to },
+        ...branchFilter,
+      },
       select: { created_at: true },
     });
 
@@ -729,7 +837,10 @@ export class OwnerDashboardService {
       }
     }
 
-    return Array.from(dateMap.entries()).map(([date, count]) => ({ date, count }));
+    return Array.from(dateMap.entries()).map(([date, count]) => ({
+      date,
+      count,
+    }));
   }
 
   private async buildPeakCheckinHours(
@@ -740,7 +851,11 @@ export class OwnerDashboardService {
   ) {
     const branchFilter = branchId ? { branch_id: branchId } : {};
     const attendances = await this.prisma.attendances.findMany({
-      where: { tenant_id: tenantId, check_in_at: { gte: from, lte: to }, ...branchFilter },
+      where: {
+        tenant_id: tenantId,
+        check_in_at: { gte: from, lte: to },
+        ...branchFilter,
+      },
       select: { check_in_at: true },
     });
 
@@ -768,11 +883,23 @@ export class OwnerDashboardService {
   ) {
     const branchFilter = branchId ? { branch_id: branchId } : {};
     const attendances = await this.prisma.attendances.findMany({
-      where: { tenant_id: tenantId, check_in_at: { gte: from, lte: to }, ...branchFilter },
+      where: {
+        tenant_id: tenantId,
+        check_in_at: { gte: from, lte: to },
+        ...branchFilter,
+      },
       select: { check_in_at: true },
     });
 
-    const DAY_LABELS = ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    const DAY_LABELS = [
+      'Chủ Nhật',
+      'Thứ 2',
+      'Thứ 3',
+      'Thứ 4',
+      'Thứ 5',
+      'Thứ 6',
+      'Thứ 7',
+    ];
     const dayMap = new Map<number, number>();
     for (let d = 0; d <= 6; d++) dayMap.set(d, 0);
 

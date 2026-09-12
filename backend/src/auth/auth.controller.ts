@@ -16,9 +16,14 @@ import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/types/jwt-payload';
+import { BypassAccessMode } from '../common/decorators/bypass-access-mode.decorator';
 
 const REFRESH_COOKIE = 'fitflow_refresh_token';
 
+// Đăng nhập/làm mới phiên phải luôn hoạt động kể cả khi Tenant đang
+// READ_ONLY/BLOCKED — nếu không Owner sẽ không có cách nào đăng nhập lại để
+// vào trang Subscription và nâng cấp gói (xem AccessModeGuard).
+@BypassAccessMode()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -30,8 +35,10 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { accessToken, refreshToken, user } =
-      await this.authService.login(dto, req.tenant?.id);
+    const { accessToken, refreshToken, user } = await this.authService.login(
+      dto,
+      req.tenant?.id,
+    );
     this.setRefreshCookie(res, refreshToken);
     return { accessToken, user };
   }

@@ -20,6 +20,7 @@ import { TenantsModule } from './tenants/tenants.module';
 import { EntitlementModule } from './entitlement/entitlement.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { TenantGuard } from './common/guards/tenant.guard';
+import { AccessModeGuard } from './common/guards/access-mode.guard';
 
 @Module({
   imports: [
@@ -47,6 +48,12 @@ import { TenantGuard } from './common/guards/tenant.guard';
       provide: APP_GUARD,
       useClass: TenantGuard,
     },
+    // Chạy sau TenantGuard (thứ tự khai báo APP_GUARD) — cần request.tenant
+    // đã được TenantMiddleware gán trước đó. Xem access-mode.guard.ts.
+    {
+      provide: APP_GUARD,
+      useClass: AccessModeGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {
@@ -54,4 +61,3 @@ export class AppModule implements NestModule {
     consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }
-

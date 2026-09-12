@@ -8,7 +8,12 @@ import type { RequestUser } from '../../common/types/jwt-payload';
 import { OwnerSubscriptionService } from './owner-subscription.service';
 import { SelectPlanDto } from './dto/select-plan.dto';
 import { MarkTransferredDto } from './dto/mark-transferred.dto';
+import { BypassAccessMode } from '../../common/decorators/bypass-access-mode.decorator';
 
+// BR-TRIAL-06: đây chính là "lối thoát" khi Tenant đang READ_ONLY/BLOCKED —
+// Owner phải luôn xem được gói hiện tại, chọn gói mới và gửi yêu cầu thanh
+// toán được, nếu không sẽ không có cách nào tự nâng cấp (xem AccessModeGuard).
+@BypassAccessMode()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(ROLE.OWNER)
 @Controller('owner/subscription')

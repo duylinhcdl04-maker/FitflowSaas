@@ -48,22 +48,32 @@ export class OwnerSubscriptionService {
     if (!tenant || !subscription)
       throw new NotFoundException('Không tìm thấy Subscription');
 
-    const [branchCount, staffCount, ptCount, customerCount] = await Promise.all([
-      this.prisma.branch.count({ where: { tenant_id: tenantId } }),
-      this.prisma.user.count({
-        where: { tenant_id: tenantId, user_type: 'TENANT' },
-      }),
-      this.prisma.user.count({
-        where: {
-          tenant_id: tenantId,
-          OR: [
-            { pt_profiles: { isNot: null } },
-            { user_roles: { some: { roles: { code: { in: [ROLE.PT, 'PT', 'PERSONAL_TRAINER'] } } } } },
-          ],
-        },
-      }),
-      this.prisma.customer.count({ where: { tenant_id: tenantId } }),
-    ]);
+    const [branchCount, staffCount, ptCount, customerCount] = await Promise.all(
+      [
+        this.prisma.branch.count({ where: { tenant_id: tenantId } }),
+        this.prisma.user.count({
+          where: { tenant_id: tenantId, user_type: 'TENANT' },
+        }),
+        this.prisma.user.count({
+          where: {
+            tenant_id: tenantId,
+            OR: [
+              { pt_profiles: { isNot: null } },
+              {
+                user_roles: {
+                  some: {
+                    roles: {
+                      code: { in: [ROLE.PT, 'PT', 'PERSONAL_TRAINER'] },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        }),
+        this.prisma.customer.count({ where: { tenant_id: tenantId } }),
+      ],
+    );
 
     const now = new Date();
     const quotaByCode = new Map(
@@ -87,11 +97,16 @@ export class OwnerSubscriptionService {
       startDate: subscription.start_date,
       endDate: subscription.end_date,
       trialEndsAt: subscription.trial_ends_at,
+      // Math.max(0, ...) — trước đây in số âm ("-2 ngày") khi Trial đã hết hạn;
+      // giờ đứng yên ở 0, phần "đã hết hạn hay chưa" nên dựa vào `accessMode`.
       daysRemaining:
         subscription.status === 'TRIAL' && subscription.trial_ends_at
-          ? Math.ceil(
-              (subscription.trial_ends_at.getTime() - now.getTime()) /
-                86_400_000,
+          ? Math.max(
+              0,
+              Math.ceil(
+                (subscription.trial_ends_at.getTime() - now.getTime()) /
+                  86_400_000,
+              ),
             )
           : null,
       daysUntilRenewal:

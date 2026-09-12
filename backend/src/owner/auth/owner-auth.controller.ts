@@ -22,7 +22,11 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { RequestUser } from '../../common/types/jwt-payload';
 import { ROLE } from '../../common/types/role';
+import { BypassAccessMode } from '../../common/decorators/bypass-access-mode.decorator';
 
+// Đăng ký/quên-đổi mật khẩu phải luôn hoạt động kể cả khi Tenant đang
+// READ_ONLY/BLOCKED, cùng lý do với AuthController (xem AccessModeGuard).
+@BypassAccessMode()
 @Controller('owner/auth')
 export class OwnerAuthController {
   constructor(private readonly ownerAuthService: OwnerAuthService) {}
