@@ -32,7 +32,9 @@ export class PlansService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    this.logger.log('PlansService initialized with extensible 10-dimension Plan Architecture');
+    this.logger.log(
+      'PlansService initialized with extensible 10-dimension Plan Architecture',
+    );
   }
 
   /**
@@ -144,7 +146,11 @@ export class PlansService implements OnModuleInit {
   /**
    * Lưu cấu hình toàn diện 10 dimensions của Plan trong một transaction atomic
    */
-  async savePlanConfiguration(id: string, dto: SavePlanConfigDto, actor: RequestUser) {
+  async savePlanConfiguration(
+    id: string,
+    dto: SavePlanConfigDto,
+    actor: RequestUser,
+  ) {
     const plan = await this.prisma.saasPlan.findUnique({ where: { id } });
     if (!plan) throw new NotFoundException('Không tìm thấy SaaS Plan');
 
@@ -211,7 +217,11 @@ export class PlansService implements OnModuleInit {
               plan_id_feature_id: { plan_id: id, feature_id: feat.featureId },
             },
             update: { is_enabled: feat.isEnabled },
-            create: { plan_id: id, feature_id: feat.featureId, is_enabled: feat.isEnabled },
+            create: {
+              plan_id: id,
+              feature_id: feat.featureId,
+              is_enabled: feat.isEnabled,
+            },
           });
         }
       }
@@ -242,7 +252,10 @@ export class PlansService implements OnModuleInit {
         for (const integ of dto.integrations) {
           await tx.planIntegration.upsert({
             where: {
-              plan_id_integration_id: { plan_id: id, integration_id: integ.integrationId },
+              plan_id_integration_id: {
+                plan_id: id,
+                integration_id: integ.integrationId,
+              },
             },
             update: {
               is_enabled: integ.isEnabled,
@@ -297,7 +310,9 @@ export class PlansService implements OnModuleInit {
     const hasBasePrice = Number(plan.price) >= 0;
     const hasCyclePrices = plan.plan_prices.length > 0;
     if (!hasBasePrice && !hasCyclePrices) {
-      errors.push('Gói cần có cấu hình giá cơ bản hoặc ít nhất một chu kỳ thanh toán.');
+      errors.push(
+        'Gói cần có cấu hình giá cơ bản hoặc ít nhất một chu kỳ thanh toán.',
+      );
     }
 
     // Validate features
@@ -307,13 +322,19 @@ export class PlansService implements OnModuleInit {
 
     // Validate quotas
     if (plan.plan_quotas.length === 0) {
-      errors.push('Gói chưa được cấu hình giới hạn tài nguyên (Resource Quotas).');
+      errors.push(
+        'Gói chưa được cấu hình giới hạn tài nguyên (Resource Quotas).',
+      );
     } else {
       const invalidQuota = plan.plan_quotas.find(
-        (q) => q.mode === 'LIMITED' && (q.quota_value === null || q.quota_value <= 0),
+        (q) =>
+          q.mode === 'LIMITED' &&
+          (q.quota_value === null || q.quota_value <= 0),
       );
       if (invalidQuota) {
-        errors.push(`Hạn ngạch [${invalidQuota.platform_quotas?.name}] được đặt là LIMITED nhưng chưa có giá trị hợp lệ.`);
+        errors.push(
+          `Hạn ngạch [${invalidQuota.platform_quotas?.name}] được đặt là LIMITED nhưng chưa có giá trị hợp lệ.`,
+        );
       }
     }
 
@@ -328,7 +349,8 @@ export class PlansService implements OnModuleInit {
     if (!validation.isValid) {
       throw new BadRequestException({
         statusCode: 400,
-        message: 'Gói chưa đủ điều kiện để Xuất bản (Publish). Vui lòng kiểm tra lại cấu hình.',
+        message:
+          'Gói chưa đủ điều kiện để Xuất bản (Publish). Vui lòng kiểm tra lại cấu hình.',
         errors: validation.errors,
       });
     }
@@ -407,7 +429,9 @@ export class PlansService implements OnModuleInit {
     const source = await this.getPlan(id);
     let newCode = `${source.code}_COPY`;
     let count = 1;
-    while (await this.prisma.saasPlan.findUnique({ where: { code: newCode } })) {
+    while (
+      await this.prisma.saasPlan.findUnique({ where: { code: newCode } })
+    ) {
       count++;
       newCode = `${source.code}_COPY_${count}`;
     }

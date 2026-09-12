@@ -18,7 +18,8 @@ export class TenantGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
     const tenant: RequestTenant | null = request.tenant ?? null;
-    const user: RequestUser | undefined = request.user as RequestUser | undefined;
+    const user: RequestUser | undefined = request.user as
+      RequestUser | undefined;
 
     const isTenantRequired = this.reflector.getAllAndOverride<boolean>(
       REQUIRE_TENANT_KEY,

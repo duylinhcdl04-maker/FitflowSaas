@@ -7,7 +7,6 @@ import * as net from 'node:net';
 // Monkeypatch nodemailer/lib/shared để ngăn chặn triệt để việc phân giải và chọn địa chỉ IPv6,
 // vốn gây ra lỗi connect ENETUNREACH 2404:... trên môi trường container Linux / Docker / Railway.
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const nodemailerShared = require('nodemailer/lib/shared');
   if (nodemailerShared && nodemailerShared.networkInterfaces) {
     const filtered: Record<string, any[]> = {};
@@ -105,7 +104,7 @@ export class MailService {
     const isGmail = rawHost.includes('gmail.com');
 
     let port = options?.port ?? Number(process.env.SMTP_PORT);
-    let secure = options?.secure ?? (process.env.SMTP_SECURE === 'true');
+    let secure = options?.secure ?? process.env.SMTP_SECURE === 'true';
 
     // Gmail trên cloud (Railway, AWS, VPS) ưu tiên cổng 465 (direct SSL) vì cổng 587 hay bị firewall/proxy chặn hoặc timeout
     if (isGmail) {
@@ -173,7 +172,9 @@ export class MailService {
       return true;
     } catch (err) {
       const errorMsg = (err as Error).message;
-      this.logger.error(`[EMAIL ERROR] Gửi thư tới ${to} thất bại: ${errorMsg}`);
+      this.logger.error(
+        `[EMAIL ERROR] Gửi thư tới ${to} thất bại: ${errorMsg}`,
+      );
 
       // Nếu chạy trên Gmail và lần 1 bị lỗi (ví dụ port 587 bị timeout/chặn kết nối), tự động chuyển sang port 465 SSL với IPv4
       const host = process.env.SMTP_HOST || '';
@@ -298,23 +299,33 @@ export class MailService {
               </div>
 
               <!-- ACTION BOX (OTP / CREDENTIALS) -->
-              ${actionBoxHtml ? `
+              ${
+                actionBoxHtml
+                  ? `
                 <div style="margin: 24px 0;">
                   ${actionBoxHtml}
                 </div>
-              ` : ''}
+              `
+                  : ''
+              }
 
               <!-- CTA BUTTON IF PROVIDED -->
-              ${ctaButton ? `
+              ${
+                ctaButton
+                  ? `
                 <div style="text-align: center; margin: 30px 0 24px 0;">
                   <a href="${ctaButton.url}" target="_blank" style="background: ${badgeBg}; color: #ffffff; font-size: 15px; font-weight: 800; text-decoration: none; padding: 14px 34px; border-radius: 12px; display: inline-block; box-shadow: 0 8px 20px -4px rgba(5, 150, 105, 0.4); letter-spacing: 0.3px;">
                     ${ctaButton.text} &rarr;
                   </a>
                 </div>
-              ` : ''}
+              `
+                  : ''
+              }
 
               <!-- SECURITY NOTICE -->
-              ${securityNoticeHtml ? `
+              ${
+                securityNoticeHtml
+                  ? `
                 <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 12px; padding: 14px 16px; margin: 24px 0;">
                   <table border="0" cellpadding="0" cellspacing="0" width="100%">
                     <tr>
@@ -325,10 +336,14 @@ export class MailService {
                     </tr>
                   </table>
                 </div>
-              ` : ''}
+              `
+                  : ''
+              }
 
               <!-- MOTIVATIONAL QUOTE CARD -->
-              ${quoteText ? `
+              ${
+                quoteText
+                  ? `
                 <div style="background: linear-gradient(135deg, #f0fdf4 0%, #f8fafc 100%); border: 1px dashed #86efac; border-radius: 14px; padding: 16px 20px; margin: 26px 0 10px 0; text-align: center;">
                   <p style="font-size: 13px; font-style: italic; color: #166534; line-height: 1.6; margin: 0 0 6px 0;">
                     &ldquo;${quoteText}&rdquo;
@@ -337,7 +352,9 @@ export class MailService {
                     &mdash; ${quoteAuthor}
                   </p>
                 </div>
-              ` : ''}
+              `
+                  : ''
+              }
 
             </td>
           </tr>
@@ -371,8 +388,10 @@ export class MailService {
     let heading = 'Xác thực tài khoản';
     let subheading = 'Mã OTP bảo mật của bạn';
     let badgeText = 'BẢO MẬT FITFLOW';
-    let mainMsg = 'Chúng tôi nhận được yêu cầu xác thực từ bạn. Vui lòng sử dụng mã OTP dưới đây để hoàn tất thao tác:';
-    let quote = 'Kỷ luật hôm nay là vóc dáng và sức khỏe của ngày mai. Hãy bắt đầu ngay!';
+    let mainMsg =
+      'Chúng tôi nhận được yêu cầu xác thực từ bạn. Vui lòng sử dụng mã OTP dưới đây để hoàn tất thao tác:';
+    let quote =
+      'Kỷ luật hôm nay là vóc dáng và sức khỏe của ngày mai. Hãy bắt đầu ngay!';
 
     if (purpose === 'REGISTER_VERIFY') {
       subject = '✨ Chào mừng bạn đến với FitFlow - Mã kích hoạt tài khoản';
@@ -383,7 +402,8 @@ export class MailService {
         Cảm ơn bạn đã lựa chọn <strong>FitFlow</strong> làm người bạn đồng hành trên con đường rèn luyện và bứt phá thể lực.<br/>
         Để hoàn tất thủ tục đăng ký và kích hoạt tài khoản, vui lòng nhập mã xác thực OTP 6 số dưới đây:
       `;
-      quote = 'Hành trình vạn dặm bắt đầu từ một bước chân. Chúc bạn có những trải nghiệm tuyệt vời cùng FitFlow!';
+      quote =
+        'Hành trình vạn dặm bắt đầu từ một bước chân. Chúc bạn có những trải nghiệm tuyệt vời cùng FitFlow!';
     } else if (purpose === 'FORGOT_PASSWORD') {
       subject = '🔐 Yêu cầu khôi phục mật khẩu tài khoản FitFlow';
       heading = 'Khôi Phục Mật Khẩu';
@@ -393,7 +413,8 @@ export class MailService {
         Chúng tôi đã tiếp nhận yêu cầu đặt lại mật khẩu cho tài khoản liên kết với email <strong>${to}</strong>.<br/>
         Đừng lo lắng, hãy sử dụng mã OTP bên dưới để tiến hành tạo mật khẩu mới an toàn:
       `;
-      quote = 'Đừng để bất kỳ gián đoạn nào làm chậm bước tiến đến mục tiêu thể hình của bạn. Bứt phá ngay hôm nay!';
+      quote =
+        'Đừng để bất kỳ gián đoạn nào làm chậm bước tiến đến mục tiêu thể hình của bạn. Bứt phá ngay hôm nay!';
     } else if (purpose === 'CHANGE_PASSWORD') {
       subject = '🛡️ Xác nhận đổi mật khẩu tài khoản FitFlow';
       heading = 'Xác Nhận Đổi Mật Khẩu';
@@ -402,7 +423,8 @@ export class MailService {
       mainMsg = `
         Bạn đang thực hiện thao tác cập nhật mật khẩu mới cho tài khoản FitFlow. Nhập mã OTP sau để xác nhận quyền sở hữu:
       `;
-      quote = 'An toàn và bảo mật thông tin là nền tảng vững chắc cho mọi thành công.';
+      quote =
+        'An toàn và bảo mật thông tin là nền tảng vững chắc cho mọi thành công.';
     }
 
     const actionBoxHtml = `
@@ -448,7 +470,7 @@ export class MailService {
     acceptUrl: string,
   ) {
     const subject = `📩 ${tenantName} mời bạn tham gia hệ thống quản lý FitFlow`;
-    
+
     const mainMsg = `
       Bạn đã được đại diện quản lý từ <strong>${tenantName}</strong> gửi lời mời tham gia làm việc và quản trị chi nhánh trên nền tảng <strong>FitFlow SaaS</strong>.<br/>
       Vui lòng nhấn nút bên dưới để kích hoạt tài khoản và thiết lập mật khẩu cá nhân của riêng bạn.
@@ -465,7 +487,8 @@ export class MailService {
         text: 'Chấp Nhận Lời Mời & Kích Hoạt',
         url: acceptUrl,
       },
-      quoteText: 'Sự chuyên nghiệp và nỗ lực của từng cá nhân tạo nên sức mạnh vững chắc của toàn đội ngũ.',
+      quoteText:
+        'Sự chuyên nghiệp và nỗ lực của từng cá nhân tạo nên sức mạnh vững chắc của toàn đội ngũ.',
       quoteAuthor: 'FitFlow Team Collaboration',
       securityNoticeHtml: `
         Liên kết xác thực này có hiệu lực trong vòng <strong>7 ngày</strong>. Nếu bạn không mong đợi email này, hãy bỏ qua hoặc liên hệ người quản lý của bạn.
@@ -485,7 +508,8 @@ export class MailService {
     temporaryPassword: string,
   ) {
     const subject = `🏢 Tài khoản Quản lý chi nhánh của bạn tại ${tenantName}`;
-    const loginUrl = process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
+    const loginUrl =
+      process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
 
     const actionBoxHtml = `
       <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 14px; padding: 20px;">
@@ -523,7 +547,8 @@ export class MailService {
         text: 'Đăng Nhập Vào Hệ Thống',
         url: loginUrl,
       },
-      quoteText: 'Lãnh đạo xuất sắc là truyền cảm hứng và dẫn dắt tập thể cùng vươn tới đỉnh cao.',
+      quoteText:
+        'Lãnh đạo xuất sắc là truyền cảm hứng và dẫn dắt tập thể cùng vươn tới đỉnh cao.',
       quoteAuthor: 'FitFlow Leadership',
       securityNoticeHtml: `
         <strong>Quy định bảo mật:</strong> Vui lòng đổi lại mật khẩu cá nhân ngay trong lần đăng nhập đầu tiên để đảm bảo an toàn tuyệt đối.
@@ -541,7 +566,8 @@ export class MailService {
     temporaryPassword: string,
   ) {
     const subject = `🏋️ Tài khoản ${roleTitle} của bạn tại ${tenantName}`;
-    const loginUrl = process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
+    const loginUrl =
+      process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
 
     const actionBoxHtml = `
       <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 14px; padding: 20px;">
@@ -579,7 +605,8 @@ export class MailService {
         text: 'Đăng Nhập Vào Ca Làm Việc',
         url: loginUrl,
       },
-      quoteText: 'Mỗi nụ cười và sự tận tâm của bạn là nguồn động lực to lớn cho các học viên.',
+      quoteText:
+        'Mỗi nụ cười và sự tận tâm của bạn là nguồn động lực to lớn cho các học viên.',
       quoteAuthor: 'FitFlow Operational Spirit',
       securityNoticeHtml: `
         Vui lòng đổi mật khẩu ngay sau lần đăng nhập đầu tiên. Nếu có bất kỳ thắc mắc nào, hãy liên hệ với Quản lý chi nhánh của bạn.
@@ -596,7 +623,8 @@ export class MailService {
     temporaryPassword: string,
   ) {
     const subject = `🎉 Chào mừng ${fullName} - Thông tin tài khoản Hội viên tại ${tenantName}`;
-    const loginUrl = process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
+    const loginUrl =
+      process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
 
     const actionBoxHtml = `
       <div style="background-color: #f0fdf4; border: 1.5px solid #a7f3d0; border-radius: 16px; padding: 22px;">
@@ -634,7 +662,8 @@ export class MailService {
         text: 'Đăng Nhập Khám Phá Ngay',
         url: loginUrl,
       },
-      quoteText: 'Cơ thể là ngôi đền duy nhất bạn sẽ sống suốt đời. Hãy chăm sóc và rèn luyện nó mỗi ngày!',
+      quoteText:
+        'Cơ thể là ngôi đền duy nhất bạn sẽ sống suốt đời. Hãy chăm sóc và rèn luyện nó mỗi ngày!',
       quoteAuthor: 'FitFlow Member Community',
       securityNoticeHtml: `
         <strong>Yêu cầu an toàn:</strong> Để bảo vệ quyền lợi và thông tin thẻ hội viên, vui lòng <strong>thay đổi mật khẩu riêng</strong> ở lần đăng nhập đầu tiên.
@@ -651,7 +680,8 @@ export class MailService {
     temporaryPassword: string,
   ) {
     const subject = `🔑 Cấp lại Mật khẩu Tài khoản Hội viên - ${tenantName}`;
-    const loginUrl = process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
+    const loginUrl =
+      process.env.APP_FRONTEND_URL || 'http://localhost:5173/login';
 
     const actionBoxHtml = `
       <div style="background-color: #f0fdf4; border: 1.5px solid #a7f3d0; border-radius: 16px; padding: 22px;">
@@ -689,7 +719,8 @@ export class MailService {
         text: 'Đăng Nhập Và Đổi Mật Khẩu',
         url: loginUrl,
       },
-      quoteText: 'Kiên trì không phải là không bao giờ vấp ngã, mà là luôn sẵn sàng đứng dậy và tiếp tục bước đi.',
+      quoteText:
+        'Kiên trì không phải là không bao giờ vấp ngã, mà là luôn sẵn sàng đứng dậy và tiếp tục bước đi.',
       quoteAuthor: 'FitFlow Motivation',
       securityNoticeHtml: `
         Vì lý do an toàn, vui lòng <strong>đổi sang mật khẩu cá nhân mới</strong> ngay sau khi đăng nhập. Nếu bạn không gửi yêu cầu này, vui lòng báo ngay cho Quản lý phòng gym.
@@ -699,4 +730,3 @@ export class MailService {
     await this.deliverEmail(to, subject, html, temporaryPassword);
   }
 }
-

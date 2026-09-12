@@ -108,7 +108,10 @@ export class PtController {
   }
 
   @Post('clients/inbody')
-  createInBodyRecord(@CurrentUser() user: any, @Body() dto: CreateInBodyRecordDto) {
+  createInBodyRecord(
+    @CurrentUser() user: any,
+    @Body() dto: CreateInBodyRecordDto,
+  ) {
     return this.ptService.createInBodyRecord(user, dto);
   }
 
@@ -118,7 +121,10 @@ export class PtController {
   }
 
   @Post('packages')
-  createPtPackagePlan(@CurrentUser() user: any, @Body() dto: CreatePtPackagePlanDto) {
+  createPtPackagePlan(
+    @CurrentUser() user: any,
+    @Body() dto: CreatePtPackagePlanDto,
+  ) {
     return this.ptService.createPtPackagePlan(user, dto);
   }
 
@@ -137,7 +143,10 @@ export class PtController {
   }
 
   @Post('availability')
-  updateWorkingHours(@CurrentUser() user: any, @Body() dto: UpdateWorkingHoursDto) {
+  updateWorkingHours(
+    @CurrentUser() user: any,
+    @Body() dto: UpdateWorkingHoursDto,
+  ) {
     return this.ptService.updateWorkingHours(user, dto);
   }
 

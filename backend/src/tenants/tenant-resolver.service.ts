@@ -51,12 +51,11 @@ export class TenantResolverService {
 
     // 2. Hostname / Host header
     const hostSub =
-      extractFromHost(req.hostname) ||
-      extractFromHost(req.headers.host as string | undefined);
+      extractFromHost(req.hostname) || extractFromHost(req.headers.host);
     if (hostSub) return hostSub;
 
     // 3. Origin header (gửi từ frontend browser CORS request)
-    const origin = req.headers.origin as string | undefined;
+    const origin = req.headers.origin;
     if (origin) {
       try {
         const url = new URL(origin);
@@ -68,7 +67,7 @@ export class TenantResolverService {
     }
 
     // 4. Referer header
-    const referer = req.headers.referer as string | undefined;
+    const referer = req.headers.referer;
     if (referer) {
       try {
         const url = new URL(referer);

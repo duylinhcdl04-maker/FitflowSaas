@@ -417,7 +417,9 @@ export class OwnerAuthService {
       );
     }
     if (otp.expires_at < new Date()) {
-      throw new BadRequestException('Mã OTP đã hết hạn, vui lòng gửi lại mã mới');
+      throw new BadRequestException(
+        'Mã OTP đã hết hạn, vui lòng gửi lại mã mới',
+      );
     }
     if (otp.attempts >= MAX_ATTEMPTS) {
       throw new BadRequestException(

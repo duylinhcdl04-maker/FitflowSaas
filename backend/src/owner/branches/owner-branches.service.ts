@@ -248,7 +248,10 @@ export class OwnerBranchesService {
   }
 
   private async assertQuotaNotExceeded(tenantId: string) {
-    await this.entitlementService.assertQuotaAvailable(tenantId, 'MAX_BRANCHES');
+    await this.entitlementService.assertQuotaAvailable(
+      tenantId,
+      'MAX_BRANCHES',
+    );
   }
 
   private async generateUniqueCode(tenantId: string, name: string) {

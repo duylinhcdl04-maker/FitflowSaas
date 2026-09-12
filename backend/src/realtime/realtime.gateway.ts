@@ -17,7 +17,10 @@ import type { JwtPayload } from '../common/types/jwt-payload';
 @WebSocketGateway({
   namespace: '/realtime',
   cors: {
-    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
       if (!origin) return callback(null, true);
       const isLocalhost =
         origin.startsWith('http://localhost:') ||
@@ -32,14 +35,19 @@ import type { JwtPayload } from '../common/types/jwt-payload';
         origin === 'http://fitflow.io.vn' ||
         origin.endsWith('.fitflow.io.vn') ||
         origin.endsWith('.vercel.app');
-      const allowedOrigins = [process.env.FRONTEND_URL].filter(Boolean) as string[];
-      if (isLocalhost || isFitflowDomain || allowedOrigins.includes(origin)) return callback(null, true);
+      const allowedOrigins = [process.env.FRONTEND_URL].filter(
+        Boolean,
+      ) as string[];
+      if (isLocalhost || isFitflowDomain || allowedOrigins.includes(origin))
+        return callback(null, true);
       return callback(new Error('Blocked by CORS'));
     },
     credentials: true,
   },
 })
-export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer() server!: Server;
 
   private readonly logger = new Logger(RealtimeGateway.name);
@@ -68,7 +76,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       // user (bell badge) without broadcasting to the whole tenant/branch.
       client.join(`user:${payload.sub}`);
     } catch {
-      this.logger.warn(`Socket connection rejected: invalid token (${client.id})`);
+      this.logger.warn(
+        `Socket connection rejected: invalid token (${client.id})`,
+      );
       client.disconnect();
     }
   }
@@ -85,8 +95,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   /** Push an event to everyone currently viewing the given branch. */
-  emitToBranch(tenantId: string, branchId: string, event: string, payload: unknown) {
-    this.server?.to(`tenant:${tenantId}:branch:${branchId}`).emit(event, payload);
+  emitToBranch(
+    tenantId: string,
+    branchId: string,
+    event: string,
+    payload: unknown,
+  ) {
+    this.server
+      ?.to(`tenant:${tenantId}:branch:${branchId}`)
+      .emit(event, payload);
   }
 
   /** Push an event to everyone in the tenant, regardless of branch. */

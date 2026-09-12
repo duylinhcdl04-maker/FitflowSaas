@@ -88,7 +88,11 @@ export class PtService {
     const tenantId = this.getTenantId(user);
     if (user.selectedBranchId) {
       const branch = await this.prisma.branch.findFirst({
-        where: { id: user.selectedBranchId, tenant_id: tenantId, status: 'ACTIVE' },
+        where: {
+          id: user.selectedBranchId,
+          tenant_id: tenantId,
+          status: 'ACTIVE',
+        },
       });
       if (branch) return branch.id;
     }
@@ -433,14 +437,17 @@ export class PtService {
       throw new NotFoundException('Không tìm thấy lịch hẹn');
     }
     if (booking.status === 'COMPLETED') {
-      throw new BadRequestException('Lịch hẹn này đã hoàn thành, không thể báo vắng mặt');
+      throw new BadRequestException(
+        'Lịch hẹn này đã hoàn thành, không thể báo vắng mặt',
+      );
     }
 
     const updated = await this.prisma.ptBooking.update({
       where: { id: dto.bookingId },
       data: {
         status: 'NO_SHOW',
-        session_note: dto.reason || booking.session_note || 'Học viên không đến ca dạy',
+        session_note:
+          dto.reason || booking.session_note || 'Học viên không đến ca dạy',
       },
     });
 
@@ -475,7 +482,9 @@ export class PtService {
     });
 
     if (!pkg) {
-      throw new BadRequestException('Gói PT của học viên không hợp lệ hoặc đã hết hạn/không phải do bạn phụ trách');
+      throw new BadRequestException(
+        'Gói PT của học viên không hợp lệ hoặc đã hết hạn/không phải do bạn phụ trách',
+      );
     }
 
     if (pkg.expiry_date && new Date() > new Date(pkg.expiry_date)) {
@@ -491,7 +500,9 @@ export class PtService {
       },
     });
     if (!activeMembership) {
-      throw new BadRequestException('Học viên chưa có thẻ Membership Gym đang hoạt động để đặt lịch PT');
+      throw new BadRequestException(
+        'Học viên chưa có thẻ Membership Gym đang hoạt động để đặt lịch PT',
+      );
     }
 
     // BR-PTB-006: Session capacity check
@@ -503,7 +514,8 @@ export class PtService {
       },
     });
     const completedCount = pkg.used_sessions ?? 0;
-    const availableToBook = pkg.total_sessions - completedCount - reservedBookingsCount;
+    const availableToBook =
+      pkg.total_sessions - completedCount - reservedBookingsCount;
     if (availableToBook <= 0) {
       throw new BadRequestException(
         `Học viên đã giữ chỗ hết số buổi của gói PT (${pkg.total_sessions} buổi: ${completedCount} đã hoàn thành, ${reservedBookingsCount} đang xếp lịch).`,
@@ -512,8 +524,14 @@ export class PtService {
 
     const scheduledStart = new Date(dto.scheduledStart);
     const scheduledEnd = new Date(dto.scheduledEnd);
-    if (Number.isNaN(scheduledStart.getTime()) || Number.isNaN(scheduledEnd.getTime()) || scheduledStart >= scheduledEnd) {
-      throw new BadRequestException('Thời gian bắt đầu và kết thúc không hợp lệ');
+    if (
+      Number.isNaN(scheduledStart.getTime()) ||
+      Number.isNaN(scheduledEnd.getTime()) ||
+      scheduledStart >= scheduledEnd
+    ) {
+      throw new BadRequestException(
+        'Thời gian bắt đầu và kết thúc không hợp lệ',
+      );
     }
     if (scheduledStart < new Date()) {
       throw new BadRequestException('Không thể đặt lịch tập trong quá khứ');
@@ -530,7 +548,9 @@ export class PtService {
       },
     });
     if (ptConflict) {
-      throw new BadRequestException('Bạn đã có một ca dạy khác trùng với khung giờ này');
+      throw new BadRequestException(
+        'Bạn đã có một ca dạy khác trùng với khung giờ này',
+      );
     }
 
     const customerConflict = await this.prisma.ptBooking.findFirst({
@@ -543,7 +563,9 @@ export class PtService {
       },
     });
     if (customerConflict) {
-      throw new BadRequestException('Học viên đã có một ca tập PT khác trùng khung giờ này');
+      throw new BadRequestException(
+        'Học viên đã có một ca tập PT khác trùng khung giờ này',
+      );
     }
 
     // PT-initiated booking is created directly as SCHEDULED
@@ -739,7 +761,10 @@ export class PtService {
       throw new NotFoundException('Không tìm thấy bản ghi nhật ký bài tập');
     }
 
-    if (log.customer_pt_packages.pt_user_id !== user.id && log.created_by !== user.id) {
+    if (
+      log.customer_pt_packages.pt_user_id !== user.id &&
+      log.created_by !== user.id
+    ) {
       throw new ForbiddenException('Bạn không có quyền chỉnh sửa nhật ký này');
     }
 
@@ -771,12 +796,17 @@ export class PtService {
       throw new NotFoundException('Không tìm thấy bản ghi nhật ký bài tập');
     }
 
-    if (log.customer_pt_packages.pt_user_id !== user.id && log.created_by !== user.id) {
+    if (
+      log.customer_pt_packages.pt_user_id !== user.id &&
+      log.created_by !== user.id
+    ) {
       throw new ForbiddenException('Bạn không có quyền xóa nhật ký này');
     }
 
     if (log.reason !== 'WORKOUT_LOG' && log.delta !== 0) {
-      throw new BadRequestException('Không thể xóa bản ghi hoàn thành ca dạy trừ buổi!');
+      throw new BadRequestException(
+        'Không thể xóa bản ghi hoàn thành ca dạy trừ buổi!',
+      );
     }
 
     return this.prisma.pt_session_logs.delete({
@@ -919,7 +949,11 @@ export class PtService {
     });
   }
 
-  async cancelPtPackage(user: any, packageId: string, dto?: CancelPtPackageDto) {
+  async cancelPtPackage(
+    user: any,
+    packageId: string,
+    dto?: CancelPtPackageDto,
+  ) {
     const tenantId = this.getTenantId(user);
     const pkg = await this.prisma.customer_pt_packages.findFirst({
       where: {

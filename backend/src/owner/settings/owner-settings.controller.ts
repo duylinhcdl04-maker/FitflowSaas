@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -52,7 +61,11 @@ export class OwnerSettingsController {
     @Body() dto: UpdateAutoCheckoutPolicyDto,
     @CurrentUser() actor: RequestUser,
   ) {
-    return this.ownerSettingsService.updateAutoCheckoutPolicy(actor.tenantId!, dto, actor);
+    return this.ownerSettingsService.updateAutoCheckoutPolicy(
+      actor.tenantId!,
+      dto,
+      actor,
+    );
   }
 
   // Tenant brand settings
@@ -77,7 +90,10 @@ export class OwnerSettingsController {
 
   @Post('payment-accounts/lookup-account-name')
   lookupAccountName(@Body() dto: LookupAccountNameDto) {
-    return this.ownerSettingsService.lookupAccountName(dto.bin, dto.accountNumber);
+    return this.ownerSettingsService.lookupAccountName(
+      dto.bin,
+      dto.accountNumber,
+    );
   }
 
   // Payment accounts settings
@@ -91,7 +107,11 @@ export class OwnerSettingsController {
     @Body() dto: CreatePaymentAccountDto,
     @CurrentUser() actor: RequestUser,
   ) {
-    return this.ownerSettingsService.createPaymentAccount(actor.tenantId!, dto, actor);
+    return this.ownerSettingsService.createPaymentAccount(
+      actor.tenantId!,
+      dto,
+      actor,
+    );
   }
 
   @Put('payment-accounts/:id')
@@ -100,7 +120,12 @@ export class OwnerSettingsController {
     @Body() dto: UpdatePaymentAccountDto,
     @CurrentUser() actor: RequestUser,
   ) {
-    return this.ownerSettingsService.updatePaymentAccount(actor.tenantId!, id, dto, actor);
+    return this.ownerSettingsService.updatePaymentAccount(
+      actor.tenantId!,
+      id,
+      dto,
+      actor,
+    );
   }
 
   @Delete('payment-accounts/:id')
@@ -108,6 +133,10 @@ export class OwnerSettingsController {
     @Param('id') id: string,
     @CurrentUser() actor: RequestUser,
   ) {
-    return this.ownerSettingsService.deletePaymentAccount(actor.tenantId!, id, actor);
+    return this.ownerSettingsService.deletePaymentAccount(
+      actor.tenantId!,
+      id,
+      actor,
+    );
   }
 }

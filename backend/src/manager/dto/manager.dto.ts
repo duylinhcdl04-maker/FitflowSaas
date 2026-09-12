@@ -1,4 +1,10 @@
-import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class ManualCheckinDto {
   @IsString({ message: 'Customer ID không hợp lệ' })

@@ -86,7 +86,11 @@ export class ManagerController {
     @Query('to') to?: string,
     @Query('groupBy') groupBy?: 'day' | 'week' | 'month',
   ) {
-    return this.managerService.getDashboardPerformance(user, branchId, { from, to, groupBy });
+    return this.managerService.getDashboardPerformance(user, branchId, {
+      from,
+      to,
+      groupBy,
+    });
   }
 
   @Get('checkin/currently-in-gym')
@@ -126,10 +130,7 @@ export class ManagerController {
 
   @Post('checkin/undo')
   @HttpCode(HttpStatus.OK)
-  undoCheckin(
-    @CurrentUser() user: RequestUser,
-    @Body() dto: UndoCheckinDto,
-  ) {
+  undoCheckin(@CurrentUser() user: RequestUser, @Body() dto: UndoCheckinDto) {
     return this.managerService.undoCheckin(user, dto);
   }
 
@@ -178,7 +179,14 @@ export class ManagerController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.managerService.getCustomers(user, search, packageId, status, page, limit);
+    return this.managerService.getCustomers(
+      user,
+      search,
+      packageId,
+      status,
+      page,
+      limit,
+    );
   }
 
   @Get('packages')
@@ -199,10 +207,7 @@ export class ManagerController {
   @Post('memberships/add-days')
   @Roles(ROLE.BRANCH_MANAGER, ROLE.OWNER)
   @HttpCode(HttpStatus.OK)
-  addFreeDays(
-    @CurrentUser() user: RequestUser,
-    @Body() dto: AddFreeDaysDto,
-  ) {
+  addFreeDays(@CurrentUser() user: RequestUser, @Body() dto: AddFreeDaysDto) {
     return this.managerService.addFreeDays(user, dto);
   }
 
@@ -213,10 +218,7 @@ export class ManagerController {
 
   @Post('pt/bookings')
   @HttpCode(HttpStatus.OK)
-  createPtBooking(
-    @CurrentUser() user: RequestUser,
-    @Body() dto: PtBookingDto,
-  ) {
+  createPtBooking(@CurrentUser() user: RequestUser, @Body() dto: PtBookingDto) {
     return this.managerService.createPtBooking(user, dto);
   }
 

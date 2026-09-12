@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { writeAuditLog } from '../common/utils/audit';
 import { ROLE } from '../common/types/role';
@@ -23,7 +27,14 @@ export class SalesFulfillmentService {
 
   async finalizeMembershipSale(
     tx: TxClient,
-    params: { tenantId: string; branchId: string; userId: string; customerId: string; packageId: string; startDate?: string },
+    params: {
+      tenantId: string;
+      branchId: string;
+      userId: string;
+      customerId: string;
+      packageId: string;
+      startDate?: string;
+    },
   ) {
     const pkg = await tx.membershipPackage.findFirst({
       where: { tenant_id: params.tenantId, id: params.packageId },
@@ -94,13 +105,26 @@ export class SalesFulfillmentService {
     },
   ) {
     const plan = await tx.pt_package_plans.findFirst({
-      where: { tenant_id: params.tenantId, id: params.planId, status: 'ACTIVE' },
-      include: { pt_profiles: { include: { users: { select: { full_name: true } } } } },
+      where: {
+        tenant_id: params.tenantId,
+        id: params.planId,
+        status: 'ACTIVE',
+      },
+      include: {
+        pt_profiles: { include: { users: { select: { full_name: true } } } },
+      },
     });
-    if (!plan) throw new NotFoundException('Gói tập PT không tồn tại hoặc chưa được phê duyệt mở bán.');
+    if (!plan)
+      throw new NotFoundException(
+        'Gói tập PT không tồn tại hoặc chưa được phê duyệt mở bán.',
+      );
 
     const activeMembership = await tx.membership.findFirst({
-      where: { tenant_id: params.tenantId, customer_id: params.customerId, status: 'ACTIVE' },
+      where: {
+        tenant_id: params.tenantId,
+        customer_id: params.customerId,
+        status: 'ACTIVE',
+      },
     });
 
     if (!activeMembership) {
@@ -109,9 +133,13 @@ export class SalesFulfillmentService {
       );
     }
 
-    const startDate = params.startDate ? new Date(params.startDate) : new Date();
+    const startDate = params.startDate
+      ? new Date(params.startDate)
+      : new Date();
     const validityDays = plan.validity_days || 60;
-    const expiryDate = new Date(startDate.getTime() + validityDays * 24 * 60 * 60 * 1000);
+    const expiryDate = new Date(
+      startDate.getTime() + validityDays * 24 * 60 * 60 * 1000,
+    );
     const packageNo = `PT-PKG-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const customerPtPackage = await tx.customer_pt_packages.create({

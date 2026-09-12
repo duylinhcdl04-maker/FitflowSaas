@@ -53,7 +53,11 @@ function maskChatId(chatId: string): string {
 
 function mapTelegramError(errText: string, status?: number): string {
   const lower = (errText || '').toLowerCase();
-  if (status === 401 || lower.includes('unauthorized') || lower.includes('not found')) {
+  if (
+    status === 401 ||
+    lower.includes('unauthorized') ||
+    lower.includes('not found')
+  ) {
     return 'Mã Bot Token không chính xác hoặc đã bị thu hồi (TELEGRAM_INVALID_TOKEN)';
   }
   if (status === 400 && lower.includes('chat not found')) {
@@ -61,14 +65,24 @@ function mapTelegramError(errText: string, status?: number): string {
   }
   if (
     status === 403 &&
-    (lower.includes('kicked') || lower.includes('deactivated') || lower.includes('blocked'))
+    (lower.includes('kicked') ||
+      lower.includes('deactivated') ||
+      lower.includes('blocked'))
   ) {
     return 'Bot đã bị xóa khỏi nhóm hoặc bị chặn (TELEGRAM_BOT_KICKED)';
   }
-  if (status === 403 || lower.includes('not a member') || lower.includes('forbidden')) {
+  if (
+    status === 403 ||
+    lower.includes('not a member') ||
+    lower.includes('forbidden')
+  ) {
     return 'Bot chưa được thêm vào Group hoặc chưa được cấp quyền gửi tin nhắn (TELEGRAM_FORBIDDEN)';
   }
-  if (lower.includes('timeout') || lower.includes('abort') || lower.includes('econnrefused')) {
+  if (
+    lower.includes('timeout') ||
+    lower.includes('abort') ||
+    lower.includes('econnrefused')
+  ) {
     return 'Quá thời gian kết nối tới máy chủ Telegram (TELEGRAM_TIMEOUT)';
   }
   return `Không thể gửi tin nhắn Telegram: ${errText || 'Lỗi không xác định'} (TELEGRAM_SEND_FAILED)`;
@@ -133,7 +147,7 @@ export class SettingsService {
       where: { setting_key: key },
     });
 
-    let valueToStore = dto.value;
+    const valueToStore = dto.value;
 
     // If updating NOTIFICATIONS and telegram botToken is omitted, preserve existing botToken
     if (key === 'NOTIFICATIONS') {
@@ -186,7 +200,7 @@ export class SettingsService {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
-      const data = (await res.json()) as any;
+      const data = await res.json();
 
       if (!res.ok || !data.ok) {
         const errorDesc = data?.description || res.statusText;
@@ -209,7 +223,9 @@ export class SettingsService {
   }
 
   /** Step 2: Discover Chats/Groups via Telegram getUpdates */
-  async discoverTelegramChats(token: string): Promise<{ chats: TelegramChatInfo[] }> {
+  async discoverTelegramChats(
+    token: string,
+  ): Promise<{ chats: TelegramChatInfo[] }> {
     const trimmed = (token || '').trim();
     if (!trimmed) {
       throw new BadRequestException('Mã Bot Token không được để trống');
@@ -223,7 +239,7 @@ export class SettingsService {
           headers: { 'Content-Type': 'application/json' },
         },
       );
-      const data = (await res.json()) as any;
+      const data = await res.json();
 
       if (!res.ok || !data.ok) {
         const errorDesc = data?.description || res.statusText;
@@ -299,17 +315,20 @@ export class SettingsService {
     const textToSend = params.text || defaultText;
 
     try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: textToSend,
-          parse_mode: 'Markdown',
-        }),
-      });
+      const res = await fetch(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: textToSend,
+            parse_mode: 'Markdown',
+          }),
+        },
+      );
 
-      const data = (await res.json()) as any;
+      const data = await res.json();
       if (!res.ok || !data.ok) {
         const errorDesc = data?.description || res.statusText;
         throw new BadRequestException(mapTelegramError(errorDesc, res.status));

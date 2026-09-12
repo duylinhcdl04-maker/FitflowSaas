@@ -32,7 +32,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     }
 
     const headerBranchId = req.headers['x-branch-id'];
-    const queryBranchId = (req.query as Record<string, string> | undefined)?.branchId;
+    const queryBranchId = (req.query as Record<string, string> | undefined)
+      ?.branchId;
     const rawBranchId =
       typeof headerBranchId === 'string' && headerBranchId.trim()
         ? headerBranchId.trim()

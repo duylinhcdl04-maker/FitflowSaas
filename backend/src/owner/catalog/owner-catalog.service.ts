@@ -81,10 +81,18 @@ export class OwnerCatalogService {
     if (!dto.name || dto.name.trim().length < 2) {
       throw new BadRequestException('Tên gói tập phải có ít nhất 2 ký tự');
     }
-    if (dto.basePrice === undefined || dto.basePrice === null || Number(dto.basePrice) < 0) {
+    if (
+      dto.basePrice === undefined ||
+      dto.basePrice === null ||
+      Number(dto.basePrice) < 0
+    ) {
       throw new BadRequestException('Giá bán gói tập không được nhỏ hơn 0');
     }
-    if (dto.durationValue === undefined || dto.durationValue === null || Number(dto.durationValue) < 1) {
+    if (
+      dto.durationValue === undefined ||
+      dto.durationValue === null ||
+      Number(dto.durationValue) < 1
+    ) {
       throw new BadRequestException('Thời hạn gói tập phải ít nhất là 1');
     }
 

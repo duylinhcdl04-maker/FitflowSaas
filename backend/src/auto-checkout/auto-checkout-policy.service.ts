@@ -6,10 +6,12 @@ import type { RequestUser } from '../common/types/jwt-payload';
 export const AUTO_CHECKOUT_POLICY_KEY = 'auto_checkout_policy';
 
 export type AutoCheckoutPolicy =
-  | { mode: 'DURATION'; hours: number }
-  | { mode: 'CLOSING_TIME' };
+  { mode: 'DURATION'; hours: number } | { mode: 'CLOSING_TIME' };
 
-export const DEFAULT_AUTO_CHECKOUT_POLICY: AutoCheckoutPolicy = { mode: 'DURATION', hours: 4 };
+export const DEFAULT_AUTO_CHECKOUT_POLICY: AutoCheckoutPolicy = {
+  mode: 'DURATION',
+  hours: 4,
+};
 
 /**
  * Owner-configurable policy for when a forgotten check-in gets auto-closed:
@@ -29,20 +31,38 @@ export class AutoCheckoutPolicyService {
   async getPolicy(tenantId: string): Promise<AutoCheckoutPolicy> {
     const row = await this.prisma.tenantSettings.findUnique({
       where: {
-        tenant_id_setting_key: { tenant_id: tenantId, setting_key: AUTO_CHECKOUT_POLICY_KEY },
+        tenant_id_setting_key: {
+          tenant_id: tenantId,
+          setting_key: AUTO_CHECKOUT_POLICY_KEY,
+        },
       },
     });
-    return (row?.setting_value as AutoCheckoutPolicy | undefined) ?? DEFAULT_AUTO_CHECKOUT_POLICY;
+    return (
+      (row?.setting_value as AutoCheckoutPolicy | undefined) ??
+      DEFAULT_AUTO_CHECKOUT_POLICY
+    );
   }
 
-  async setPolicy(tenantId: string, policy: AutoCheckoutPolicy, actor: RequestUser) {
-    if (policy.mode === 'DURATION' && (!policy.hours || policy.hours <= 0 || policy.hours > 24)) {
-      throw new BadRequestException('Số giờ tự động check-out phải trong khoảng 1–24 giờ');
+  async setPolicy(
+    tenantId: string,
+    policy: AutoCheckoutPolicy,
+    actor: RequestUser,
+  ) {
+    if (
+      policy.mode === 'DURATION' &&
+      (!policy.hours || policy.hours <= 0 || policy.hours > 24)
+    ) {
+      throw new BadRequestException(
+        'Số giờ tự động check-out phải trong khoảng 1–24 giờ',
+      );
     }
 
     await this.prisma.tenantSettings.upsert({
       where: {
-        tenant_id_setting_key: { tenant_id: tenantId, setting_key: AUTO_CHECKOUT_POLICY_KEY },
+        tenant_id_setting_key: {
+          tenant_id: tenantId,
+          setting_key: AUTO_CHECKOUT_POLICY_KEY,
+        },
       },
       create: {
         tenant_id: tenantId,
@@ -70,7 +90,11 @@ export class AutoCheckoutPolicyService {
   }
 
   /** Computes the auto_checkout_at to stamp on a new attendance/guest visit at check-in time. */
-  async computeAutoCheckoutAt(tenantId: string, branchId: string, checkInAt: Date): Promise<Date> {
+  async computeAutoCheckoutAt(
+    tenantId: string,
+    branchId: string,
+    checkInAt: Date,
+  ): Promise<Date> {
     const policy = await this.getPolicy(tenantId);
 
     if (policy.mode === 'DURATION') {
@@ -86,7 +110,12 @@ export class AutoCheckoutPolicyService {
 
     const result = new Date(checkInAt);
     if (closing) {
-      result.setHours(closing.getHours(), closing.getMinutes(), closing.getSeconds(), 0);
+      result.setHours(
+        closing.getHours(),
+        closing.getMinutes(),
+        closing.getSeconds(),
+        0,
+      );
     } else {
       result.setHours(22, 0, 0, 0); // fallback if branch has no closing_time somehow
     }

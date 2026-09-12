@@ -47,7 +47,13 @@ export interface QuotaUsageItem {
   currentValue: number;
   effectiveLimit: number | null;
   percentage: number;
-  status: 'NORMAL' | 'WARNING_80' | 'CRITICAL_90' | 'LIMIT_REACHED' | 'DISABLED' | 'UNLIMITED';
+  status:
+    | 'NORMAL'
+    | 'WARNING_80'
+    | 'CRITICAL_90'
+    | 'LIMIT_REACHED'
+    | 'DISABLED'
+    | 'UNLIMITED';
   message?: string;
 }
 
@@ -62,7 +68,9 @@ export class EntitlementService {
    * Base Plan + Active Add-ons = Effective Entitlement
    * Source of Truth duy nhất cho backend và frontend.
    */
-  async getEffectiveEntitlement(tenantId: string): Promise<EffectiveEntitlementResult> {
+  async getEffectiveEntitlement(
+    tenantId: string,
+  ): Promise<EffectiveEntitlementResult> {
     const subscription = await this.prisma.subscription.findFirst({
       where: {
         tenant_id: tenantId,
@@ -238,7 +246,10 @@ export class EntitlementService {
   /**
    * Kiểm tra và chặn nếu tính năng không được bật
    */
-  async assertFeatureEnabled(tenantId: string, featureCode: string): Promise<void> {
+  async assertFeatureEnabled(
+    tenantId: string,
+    featureCode: string,
+  ): Promise<void> {
     const entitlements = await this.getEffectiveEntitlement(tenantId);
     if (!entitlements.features[featureCode]) {
       throw new ForbiddenException(
@@ -250,7 +261,10 @@ export class EntitlementService {
   /**
    * Kiểm tra và chặn nếu tích hợp không được bật
    */
-  async assertIntegrationEnabled(tenantId: string, integrationCode: string): Promise<void> {
+  async assertIntegrationEnabled(
+    tenantId: string,
+    integrationCode: string,
+  ): Promise<void> {
     const entitlements = await this.getEffectiveEntitlement(tenantId);
     if (!entitlements.integrations[integrationCode]) {
       throw new ForbiddenException(
@@ -307,7 +321,10 @@ export class EntitlementService {
   /**
    * Đếm số lượng tài nguyên thực tế hiện hành của Tenant
    */
-  async getCurrentQuotaValue(tenantId: string, quotaCode: string): Promise<number> {
+  async getCurrentQuotaValue(
+    tenantId: string,
+    quotaCode: string,
+  ): Promise<number> {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -339,7 +356,9 @@ export class EntitlementService {
             user_roles: {
               some: {
                 roles: {
-                  code: { in: ['STAFF', 'MANAGER', 'BRANCH_MANAGER', 'RECEPTIONIST'] },
+                  code: {
+                    in: ['STAFF', 'MANAGER', 'BRANCH_MANAGER', 'RECEPTIONIST'],
+                  },
                 },
               },
             },
@@ -421,7 +440,8 @@ export class EntitlementService {
 
         if (current >= limit) {
           status = 'LIMIT_REACHED';
-          message = 'Đã đạt giới hạn tối đa 100%. Vui lòng Nâng cấp gói hoặc Mua Add-on.';
+          message =
+            'Đã đạt giới hạn tối đa 100%. Vui lòng Nâng cấp gói hoặc Mua Add-on.';
         } else if (percentage >= 90) {
           status = 'CRITICAL_90';
           message = `Cảnh báo nghiêm trọng: Đã sử dụng ${percentage}% hạn mức.`;

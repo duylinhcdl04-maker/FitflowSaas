@@ -16,8 +16,8 @@ export class OwnerCustomersService {
       query.type === 'GUEST'
         ? { customer_code: { startsWith: 'GUEST' } }
         : query.type === 'MEMBER'
-        ? { NOT: { customer_code: { startsWith: 'GUEST' } } }
-        : {};
+          ? { NOT: { customer_code: { startsWith: 'GUEST' } } }
+          : {};
 
     const where = {
       tenant_id: tenantId,
@@ -34,7 +34,12 @@ export class OwnerCustomersService {
                 },
               },
               { phone: { contains: query.search } },
-              { customer_code: { contains: query.search, mode: 'insensitive' as const } },
+              {
+                customer_code: {
+                  contains: query.search,
+                  mode: 'insensitive' as const,
+                },
+              },
             ],
           }
         : {}),
@@ -44,41 +49,48 @@ export class OwnerCustomersService {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const [items, total, memberCount, guestCount, newThisMonth] = await Promise.all([
-      this.prisma.customer.findMany({
-        where,
-        include: {
-          branches: { select: { name: true } },
-          memberships: {
-            where: { status: { in: [...LIVE_MEMBERSHIP_STATUSES] } },
-            orderBy: { created_at: 'desc' },
-            take: 1,
-            select: {
-              package_name_snapshot: true,
-              status: true,
-              start_date: true,
-              end_date: true,
+    const [items, total, memberCount, guestCount, newThisMonth] =
+      await Promise.all([
+        this.prisma.customer.findMany({
+          where,
+          include: {
+            branches: { select: { name: true } },
+            memberships: {
+              where: { status: { in: [...LIVE_MEMBERSHIP_STATUSES] } },
+              orderBy: { created_at: 'desc' },
+              take: 1,
+              select: {
+                package_name_snapshot: true,
+                status: true,
+                start_date: true,
+                end_date: true,
+              },
             },
           },
-        },
-        orderBy: { created_at: 'desc' },
-        skip,
-        take,
-      }),
-      this.prisma.customer.count({ where }),
-      this.prisma.customer.count({
-        where: { tenant_id: tenantId, NOT: { customer_code: { startsWith: 'GUEST' } } },
-      }),
-      this.prisma.customer.count({
-        where: { tenant_id: tenantId, customer_code: { startsWith: 'GUEST' } },
-      }),
-      this.prisma.customer.count({
-        where: {
-          tenant_id: tenantId,
-          created_at: { gte: startOfMonth },
-        },
-      }),
-    ]);
+          orderBy: { created_at: 'desc' },
+          skip,
+          take,
+        }),
+        this.prisma.customer.count({ where }),
+        this.prisma.customer.count({
+          where: {
+            tenant_id: tenantId,
+            NOT: { customer_code: { startsWith: 'GUEST' } },
+          },
+        }),
+        this.prisma.customer.count({
+          where: {
+            tenant_id: tenantId,
+            customer_code: { startsWith: 'GUEST' },
+          },
+        }),
+        this.prisma.customer.count({
+          where: {
+            tenant_id: tenantId,
+            created_at: { gte: startOfMonth },
+          },
+        }),
+      ]);
 
     const paginated = paginate(
       items.map((c) => ({

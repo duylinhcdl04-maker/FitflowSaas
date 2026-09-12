@@ -215,7 +215,13 @@ export class TenantsService {
         tenant_id: tenantId,
         OR: [
           { pt_profiles: { isNot: null } },
-          { user_roles: { some: { roles: { code: { in: [ROLE.PT, 'PT', 'PERSONAL_TRAINER'] } } } } },
+          {
+            user_roles: {
+              some: {
+                roles: { code: { in: [ROLE.PT, 'PT', 'PERSONAL_TRAINER'] } },
+              },
+            },
+          },
         ],
       },
     });

@@ -29,7 +29,9 @@ async function bootstrap() {
     'http://localhost:5174',
     'http://localhost:5175',
     'http://localhost:3000',
-  ].map((url) => url.trim()).filter(Boolean);
+  ]
+    .map((url) => url.trim())
+    .filter(Boolean);
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -65,7 +67,10 @@ async function bootstrap() {
   const apiPrefix = (process.env.API_PREFIX || '/api/v1').replace(/^\//, '');
   app.use((req: any, _res: any, next: any) => {
     if (req.url && req.url.startsWith('/api/tenants/resolve/')) {
-      req.url = req.url.replace('/api/tenants/resolve/', `/${apiPrefix}/tenants/resolve/`);
+      req.url = req.url.replace(
+        '/api/tenants/resolve/',
+        `/${apiPrefix}/tenants/resolve/`,
+      );
     }
     next();
   });

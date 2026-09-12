@@ -1,7 +1,16 @@
-import { IsIn, IsNotEmpty, IsOptional, IsNumber, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class UpdateAutoCheckoutPolicyDto {
-  @IsIn(['DURATION', 'CLOSING_TIME'], { message: 'Chế độ tự động check-out không hợp lệ' })
+  @IsIn(['DURATION', 'CLOSING_TIME'], {
+    message: 'Chế độ tự động check-out không hợp lệ',
+  })
   @IsNotEmpty()
   mode!: 'DURATION' | 'CLOSING_TIME';
 

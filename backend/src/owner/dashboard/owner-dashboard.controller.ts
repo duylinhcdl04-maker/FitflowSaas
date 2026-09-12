@@ -25,10 +25,7 @@ export class OwnerDashboardController {
   }
 
   @Get('revenue')
-  revenue(
-    @Query() query: QueryRevenueDto,
-    @CurrentUser() actor: RequestUser,
-  ) {
+  revenue(@Query() query: QueryRevenueDto, @CurrentUser() actor: RequestUser) {
     return this.ownerDashboardService.getRevenueChart(actor.tenantId!, query);
   }
 }

@@ -330,7 +330,10 @@ export class CustomerService {
       },
     });
 
-    const remainingSessions = Math.max(0, pkg.total_sessions - completedSessions);
+    const remainingSessions = Math.max(
+      0,
+      pkg.total_sessions - completedSessions,
+    );
 
     return {
       id: pkg.id,
@@ -385,7 +388,14 @@ export class CustomerService {
     // pt_working_hours.weekday: 1 (Mon) .. 7 (Sun) — see pt.dto.ts WorkingHourItemDto.
     const isoWeekday = ((dayStart.getDay() + 6) % 7) + 1;
 
-    const [workingHours, existingPtBookings, existingCustomerBookings, branch, reservedBookingsCount, completedCount] = await Promise.all([
+    const [
+      workingHours,
+      existingPtBookings,
+      existingCustomerBookings,
+      branch,
+      reservedBookingsCount,
+      completedCount,
+    ] = await Promise.all([
       this.prisma.pt_working_hours.findMany({
         where: {
           tenant_id: customer.tenant_id,
@@ -432,13 +442,19 @@ export class CustomerService {
     ]);
 
     const sessionDuration = pkg.session_duration_minutes || 60;
-    const availableToBook = Math.max(0, pkg.total_sessions - completedCount - reservedBookingsCount);
+    const availableToBook = Math.max(
+      0,
+      pkg.total_sessions - completedCount - reservedBookingsCount,
+    );
 
     const durationMs = sessionDuration * 60_000;
     const now = new Date();
     const slots: { start: string; end: string }[] = [];
 
-    const allOccupiedRanges = [...existingPtBookings, ...existingCustomerBookings];
+    const allOccupiedRanges = [
+      ...existingPtBookings,
+      ...existingCustomerBookings,
+    ];
 
     if (availableToBook > 0) {
       for (const wh of workingHours) {
@@ -455,12 +471,22 @@ export class CustomerService {
         // Constrain by Branch Opening/Closing hours if available
         if (branch?.opening_time) {
           const branchStart = new Date(dayStart);
-          branchStart.setHours(branch.opening_time.getHours(), branch.opening_time.getMinutes(), 0, 0);
+          branchStart.setHours(
+            branch.opening_time.getHours(),
+            branch.opening_time.getMinutes(),
+            0,
+            0,
+          );
           if (start < branchStart) start.setTime(branchStart.getTime());
         }
         if (branch?.closing_time) {
           const branchEnd = new Date(dayStart);
-          branchEnd.setHours(branch.closing_time.getHours(), branch.closing_time.getMinutes(), 0, 0);
+          branchEnd.setHours(
+            branch.closing_time.getHours(),
+            branch.closing_time.getMinutes(),
+            0,
+            0,
+          );
           if (end > branchEnd) end.setTime(branchEnd.getTime());
         }
 
@@ -548,7 +574,8 @@ export class CustomerService {
         },
       }),
     ]);
-    const availableToBook = pkg.total_sessions - completedCount - reservedBookingsCount;
+    const availableToBook =
+      pkg.total_sessions - completedCount - reservedBookingsCount;
     if (availableToBook <= 0) {
       throw new BadRequestException(
         `Bạn đã giữ chỗ hết số buổi khả dụng của gói PT (${pkg.total_sessions} buổi: ${completedCount} đã hoàn thành, ${reservedBookingsCount} đang giữ chỗ/chờ duyệt).`,
@@ -557,15 +584,22 @@ export class CustomerService {
 
     const scheduledStart = new Date(dto.scheduledStart);
     if (Number.isNaN(scheduledStart.getTime()) || scheduledStart < new Date()) {
-      throw new BadRequestException('Thời gian bắt đầu đặt lịch không hợp lệ hoặc đã thuộc quá khứ');
+      throw new BadRequestException(
+        'Thời gian bắt đầu đặt lịch không hợp lệ hoặc đã thuộc quá khứ',
+      );
     }
 
     const scheduledEnd = dto.scheduledEnd
       ? new Date(dto.scheduledEnd)
       : new Date(scheduledStart.getTime() + sessionDuration * 60_000);
 
-    if (Number.isNaN(scheduledEnd.getTime()) || scheduledEnd <= scheduledStart) {
-      throw new BadRequestException('Thời gian kết thúc phải lớn hơn thời gian bắt đầu');
+    if (
+      Number.isNaN(scheduledEnd.getTime()) ||
+      scheduledEnd <= scheduledStart
+    ) {
+      throw new BadRequestException(
+        'Thời gian kết thúc phải lớn hơn thời gian bắt đầu',
+      );
     }
 
     // Validate Branch Opening / Closing hours
@@ -574,11 +608,29 @@ export class CustomerService {
       select: { opening_time: true, closing_time: true, name: true },
     });
     if (branch?.opening_time && branch?.closing_time) {
-      const dayBase = new Date(scheduledStart.getFullYear(), scheduledStart.getMonth(), scheduledStart.getDate(), 0, 0, 0, 0);
+      const dayBase = new Date(
+        scheduledStart.getFullYear(),
+        scheduledStart.getMonth(),
+        scheduledStart.getDate(),
+        0,
+        0,
+        0,
+        0,
+      );
       const branchStart = new Date(dayBase);
-      branchStart.setHours(branch.opening_time.getHours(), branch.opening_time.getMinutes(), 0, 0);
+      branchStart.setHours(
+        branch.opening_time.getHours(),
+        branch.opening_time.getMinutes(),
+        0,
+        0,
+      );
       const branchEnd = new Date(dayBase);
-      branchEnd.setHours(branch.closing_time.getHours(), branch.closing_time.getMinutes(), 0, 0);
+      branchEnd.setHours(
+        branch.closing_time.getHours(),
+        branch.closing_time.getMinutes(),
+        0,
+        0,
+      );
 
       if (scheduledStart < branchStart || scheduledEnd > branchEnd) {
         const startStr = `${String(branch.opening_time.getHours()).padStart(2, '0')}:${String(branch.opening_time.getMinutes()).padStart(2, '0')}`;
@@ -600,8 +652,24 @@ export class CustomerService {
     });
     if (workingHours.length > 0) {
       const isWithinWh = workingHours.some((wh) => {
-        const whStart = new Date(scheduledStart.getFullYear(), scheduledStart.getMonth(), scheduledStart.getDate(), wh.start_time.getHours(), wh.start_time.getMinutes(), 0, 0);
-        const whEnd = new Date(scheduledStart.getFullYear(), scheduledStart.getMonth(), scheduledStart.getDate(), wh.end_time.getHours(), wh.end_time.getMinutes(), 0, 0);
+        const whStart = new Date(
+          scheduledStart.getFullYear(),
+          scheduledStart.getMonth(),
+          scheduledStart.getDate(),
+          wh.start_time.getHours(),
+          wh.start_time.getMinutes(),
+          0,
+          0,
+        );
+        const whEnd = new Date(
+          scheduledStart.getFullYear(),
+          scheduledStart.getMonth(),
+          scheduledStart.getDate(),
+          wh.end_time.getHours(),
+          wh.end_time.getMinutes(),
+          0,
+          0,
+        );
         return scheduledStart >= whStart && scheduledEnd <= whEnd;
       });
       if (!isWithinWh) {
@@ -779,39 +847,47 @@ export class CustomerService {
       status: { not: 'CANCELLED' as const },
     };
 
-    const [weekRows, thisWeekAttendanceRows, thisMonthAttendanceRows, checkedOutAll] =
-      await Promise.all([
-        this.prisma.attendances.findMany({
-          where: {
-            ...baseWhere,
-            check_in_at: { gte: requestedMonday, lt: requestedWeekEnd },
-          },
-          orderBy: { check_in_at: 'asc' },
-          include: { branches: { select: { id: true, name: true } } },
-        }),
-        this.prisma.attendances.findMany({
-          where: {
-            ...baseWhere,
-            check_in_at: { gte: thisWeekMonday, lt: thisWeekEnd },
-          },
-          select: { check_in_at: true },
-        }),
-        this.prisma.attendances.findMany({
-          where: {
-            ...baseWhere,
-            check_in_at: { gte: monthStart, lt: monthEnd },
-          },
-          select: { check_in_at: true },
-        }),
-        this.prisma.attendances.findMany({
-          where: { ...baseWhere, check_out_at: { not: null } },
-          select: { check_in_at: true, check_out_at: true },
-        }),
-      ]);
+    const [
+      weekRows,
+      thisWeekAttendanceRows,
+      thisMonthAttendanceRows,
+      checkedOutAll,
+    ] = await Promise.all([
+      this.prisma.attendances.findMany({
+        where: {
+          ...baseWhere,
+          check_in_at: { gte: requestedMonday, lt: requestedWeekEnd },
+        },
+        orderBy: { check_in_at: 'asc' },
+        include: { branches: { select: { id: true, name: true } } },
+      }),
+      this.prisma.attendances.findMany({
+        where: {
+          ...baseWhere,
+          check_in_at: { gte: thisWeekMonday, lt: thisWeekEnd },
+        },
+        select: { check_in_at: true },
+      }),
+      this.prisma.attendances.findMany({
+        where: {
+          ...baseWhere,
+          check_in_at: { gte: monthStart, lt: monthEnd },
+        },
+        select: { check_in_at: true },
+      }),
+      this.prisma.attendances.findMany({
+        where: { ...baseWhere, check_out_at: { not: null } },
+        select: { check_in_at: true, check_out_at: true },
+      }),
+    ]);
 
     // Multiple check-ins on the same calendar day count as 1 training day (1 unique active day)
-    const uniqueWeekDays = new Set(thisWeekAttendanceRows.map((a) => this.toLocalDateStr(a.check_in_at))).size;
-    const uniqueMonthDays = new Set(thisMonthAttendanceRows.map((a) => this.toLocalDateStr(a.check_in_at))).size;
+    const uniqueWeekDays = new Set(
+      thisWeekAttendanceRows.map((a) => this.toLocalDateStr(a.check_in_at)),
+    ).size;
+    const uniqueMonthDays = new Set(
+      thisMonthAttendanceRows.map((a) => this.toLocalDateStr(a.check_in_at)),
+    ).size;
 
     const totalMinutes = checkedOutAll.reduce(
       (sum, a) =>

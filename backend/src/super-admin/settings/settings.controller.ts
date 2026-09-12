@@ -43,7 +43,9 @@ export class SettingsController {
   @Post('upload')
   async upload(@Body() body: { dataUri: string; folder?: string }) {
     if (!body?.dataUri) {
-      throw new BadRequestException('Dữ liệu hình ảnh (dataUri) không được để trống');
+      throw new BadRequestException(
+        'Dữ liệu hình ảnh (dataUri) không được để trống',
+      );
     }
     const url = await this.cloudinaryService.uploadImage(
       body.dataUri,

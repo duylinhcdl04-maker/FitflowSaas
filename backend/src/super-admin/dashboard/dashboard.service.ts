@@ -10,7 +10,11 @@ export class DashboardService {
 
   async overview() {
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
     const thirtyDaysAgo = new Date(Date.now() - THIRTY_DAYS_MS);
     const inSevenDays = new Date(Date.now() + SEVEN_DAYS_MS);
 
@@ -120,10 +124,7 @@ export class DashboardService {
       // 13. Recent Audit Logs - STRICTLY Super Admin & Platform Level Events Only (Banning Tenant internal ops)
       this.prisma.auditLog.findMany({
         where: {
-          OR: [
-            { tenant_id: null },
-            { actor_role: 'SUPER_ADMIN' },
-          ],
+          OR: [{ tenant_id: null }, { actor_role: 'SUPER_ADMIN' }],
           NOT: {
             entity_type: {
               in: [
@@ -205,7 +206,10 @@ export class DashboardService {
 
     // Monthly tenant growth (last 6 months)
     const monthNames: string[] = [];
-    const growthMap: Record<string, { newTenants: number; churnedTenants: number }> = {};
+    const growthMap: Record<
+      string,
+      { newTenants: number; churnedTenants: number }
+    > = {};
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const mStr = `T${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -236,7 +240,8 @@ export class DashboardService {
       const sub = t.subscriptions;
       const subPrice = sub ? Number(sub.price) : 0;
       let tenantMrr = subPrice;
-      if (sub?.billing_cycle_months) tenantMrr = subPrice / sub.billing_cycle_months;
+      if (sub?.billing_cycle_months)
+        tenantMrr = subPrice / sub.billing_cycle_months;
       else if (sub?.billing_cycle === 'QUARTERLY') tenantMrr = subPrice / 3;
       else if (sub?.billing_cycle === 'YEARLY') tenantMrr = subPrice / 12;
 
@@ -256,7 +261,9 @@ export class DashboardService {
         name: t.name,
         slug: t.code,
         domain: `${t.code}.fitfloww.store`,
-        plan: sub?.saas_plans?.name || (t.status === 'TRIAL' ? 'Dùng thử' : 'Starter'),
+        plan:
+          sub?.saas_plans?.name ||
+          (t.status === 'TRIAL' ? 'Dùng thử' : 'Starter'),
         mrr: Math.round(tenantMrr),
         userCount: t._count.users,
         storageUsagePercent: Math.min(95, Math.max(10, t._count.users * 3)),
@@ -281,7 +288,8 @@ export class DashboardService {
         id: 'act-failed-invoices',
         severity: 'critical',
         title: `${failedInvoicesCount} hóa đơn SaaS thanh toán thất bại / quá hạn`,
-        description: 'Các hóa đơn đăng ký chu kỳ cần được kiểm tra hoặc xử lý gia hạn thủ công.',
+        description:
+          'Các hóa đơn đăng ký chu kỳ cần được kiểm tra hoặc xử lý gia hạn thủ công.',
         count: failedInvoicesCount,
         ctaText: 'Kiểm tra hóa đơn',
         ctaPath: '/admin/invoices?status=FAILED',
@@ -293,7 +301,8 @@ export class DashboardService {
         id: 'act-expiring-subs',
         severity: 'warning',
         title: `${expiringSubsCount} subscription sắp hết hạn trong 7 ngày tới`,
-        description: 'Các gói dịch vụ cần gia hạn để tránh gián đoạn trải nghiệm của phòng gym.',
+        description:
+          'Các gói dịch vụ cần gia hạn để tránh gián đoạn trải nghiệm của phòng gym.',
         count: expiringSubsCount,
         ctaText: 'Xem subscriptions',
         ctaPath: '/admin/subscriptions',
@@ -319,16 +328,20 @@ export class DashboardService {
         id: String(log.id),
         time: `${String(actDate.getHours()).padStart(2, '0')}:${String(actDate.getMinutes()).padStart(2, '0')}`,
         timestamp: formatTimeAgo(actDate),
-        actor: log.actor_role === 'SUPER_ADMIN' ? 'Super Admin' : 'Hệ thống nền tảng',
+        actor:
+          log.actor_role === 'SUPER_ADMIN'
+            ? 'Super Admin'
+            : 'Hệ thống nền tảng',
         action: translateAdminAction(log.action),
         target: `${log.entity_type} ${log.entity_id ? `(${String(log.entity_id).slice(0, 8)})` : ''}`,
-        type: (log.entity_type?.toLowerCase().includes('subscription')
+        type: log.entity_type?.toLowerCase().includes('subscription')
           ? 'subscription'
           : log.entity_type?.toLowerCase().includes('tenant')
-          ? 'tenant'
-          : log.entity_type?.toLowerCase().includes('invoice') || log.entity_type?.toLowerCase().includes('payment')
-          ? 'payment'
-          : 'security') as 'tenant' | 'subscription' | 'payment' | 'security' | 'system',
+            ? 'tenant'
+            : log.entity_type?.toLowerCase().includes('invoice') ||
+                log.entity_type?.toLowerCase().includes('payment')
+              ? 'payment'
+              : 'security',
         status: 'info' as const,
       };
     });
@@ -403,7 +416,8 @@ export class DashboardService {
       },
       platformUsage: {
         totalUsers: totalUsersCount,
-        activeUsersToday: checkinsTodayCount > 0 ? checkinsTodayCount : totalUsersCount,
+        activeUsersToday:
+          checkinsTodayCount > 0 ? checkinsTodayCount : totalUsersCount,
         checkinsToday: checkinsTodayCount,
         faceEmbeddingsRegistered: faceEmbeddingsCount,
         failedInvoicesCount: failedInvoicesCount,
@@ -418,7 +432,10 @@ export class DashboardService {
         {
           id: 'srv-db',
           name: 'PostgreSQL Database',
-          status: dbLatencyMs < 200 ? ('operational' as const) : ('degraded' as const),
+          status:
+            dbLatencyMs < 200
+              ? ('operational' as const)
+              : ('degraded' as const),
           uptimePercent: 99.99,
           latencyMs: dbLatencyMs || 15,
         },

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { writeAuditLog } from '../../common/utils/audit';
 import type { RequestUser } from '../../common/types/jwt-payload';
@@ -27,7 +31,8 @@ export interface VietQrBank {
 
 @Injectable()
 export class OwnerSettingsService {
-  private bankListCache: { data: VietQrBank[]; fetchedAt: number } | null = null;
+  private bankListCache: { data: VietQrBank[]; fetchedAt: number } | null =
+    null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -43,14 +48,24 @@ export class OwnerSettingsService {
     return this.autoCheckoutPolicy.getPolicy(tenantId);
   }
 
-  async updateAutoCheckoutPolicy(tenantId: string, dto: UpdateAutoCheckoutPolicyDto, actor: RequestUser) {
-    const policy = dto.mode === 'DURATION' ? { mode: 'DURATION' as const, hours: dto.hours! } : { mode: 'CLOSING_TIME' as const };
+  async updateAutoCheckoutPolicy(
+    tenantId: string,
+    dto: UpdateAutoCheckoutPolicyDto,
+    actor: RequestUser,
+  ) {
+    const policy =
+      dto.mode === 'DURATION'
+        ? { mode: 'DURATION' as const, hours: dto.hours! }
+        : { mode: 'CLOSING_TIME' as const };
     return this.autoCheckoutPolicy.setPolicy(tenantId, policy, actor);
   }
 
   /** Free, public, unauthenticated — VietQR's list of NAPAS-member banks (bin/code/shortName/logo). */
   async listBanks(): Promise<VietQrBank[]> {
-    if (this.bankListCache && Date.now() - this.bankListCache.fetchedAt < BANK_LIST_TTL_MS) {
+    if (
+      this.bankListCache &&
+      Date.now() - this.bankListCache.fetchedAt < BANK_LIST_TTL_MS
+    ) {
       return this.bankListCache.data;
     }
 
@@ -63,7 +78,9 @@ export class OwnerSettingsService {
     } catch {
       // Serve stale cache rather than fail the whole Settings page if VietQR is briefly down.
       if (this.bankListCache) return this.bankListCache.data;
-      throw new BadRequestException('Không thể tải danh sách ngân hàng từ VietQR. Vui lòng thử lại.');
+      throw new BadRequestException(
+        'Không thể tải danh sách ngân hàng từ VietQR. Vui lòng thử lại.',
+      );
     }
   }
 
@@ -73,7 +90,10 @@ export class OwnerSettingsService {
    * platform's own VIETQR_CLIENT_ID/VIETQR_API_KEY (shared across all tenants —
    * distinct from each tenant's own SePay webhook key).
    */
-  async lookupAccountName(bin: string, accountNumber: string): Promise<{ accountName: string }> {
+  async lookupAccountName(
+    bin: string,
+    accountNumber: string,
+  ): Promise<{ accountName: string }> {
     const clientId = process.env.VIETQR_CLIENT_ID;
     const apiKey = process.env.VIETQR_API_KEY;
     if (!clientId || !apiKey) {
@@ -95,7 +115,8 @@ export class OwnerSettingsService {
 
     if (json?.code !== '00' || !json?.data?.accountName) {
       throw new BadRequestException(
-        json?.desc || 'Không tìm thấy chủ tài khoản. Vui lòng kiểm tra lại số tài khoản hoặc nhập tên thủ công.',
+        json?.desc ||
+          'Không tìm thấy chủ tài khoản. Vui lòng kiểm tra lại số tài khoản hoặc nhập tên thủ công.',
       );
     }
 
@@ -127,9 +148,16 @@ export class OwnerSettingsService {
     // GROWTH/ENTERPRISE đều có đủ dòng saas_plan_features, nên kiểm tra entitlement thật
     // qua EntitlementService dùng chung (bypass FACE_CHECKIN_ENABLED trước đây không còn
     // cần thiết và đã bị xoá).
-    if (dto.qr) await this.entitlementService.assertFeatureEnabled(tenantId, 'QR_CHECKIN');
+    if (dto.qr)
+      await this.entitlementService.assertFeatureEnabled(
+        tenantId,
+        'QR_CHECKIN',
+      );
     if (dto.face)
-      await this.entitlementService.assertFeatureEnabled(tenantId, 'FACE_RECOGNITION');
+      await this.entitlementService.assertFeatureEnabled(
+        tenantId,
+        'FACE_RECOGNITION',
+      );
 
     const value = { qr: dto.qr, manual: true, face: dto.face };
     await this.prisma.tenantSettings.upsert({
@@ -216,7 +244,11 @@ export class OwnerSettingsService {
     return tenant;
   }
 
-  async updateTenant(tenantId: string, dto: UpdateTenantDto, actor: RequestUser) {
+  async updateTenant(
+    tenantId: string,
+    dto: UpdateTenantDto,
+    actor: RequestUser,
+  ) {
     const updated = await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
@@ -243,13 +275,17 @@ export class OwnerSettingsService {
   // Payment accounts settings
 
   /** Never leak the raw SePay key back to the client; mask it and attach the webhook URL to paste into SePay's dashboard. */
-  private presentPaymentAccount<T extends { id: string; tenant_id: string; sepay_api_key: string | null }>(account: T) {
+  private presentPaymentAccount<
+    T extends { id: string; tenant_id: string; sepay_api_key: string | null },
+  >(account: T) {
     const { sepay_api_key, ...rest } = account;
     const base = process.env.PUBLIC_APP_URL || 'http://localhost:5000';
     const prefix = (process.env.API_PREFIX || '/api/v1').replace(/^\/?/, '/');
     return {
       ...rest,
-      sepayApiKeyMasked: sepay_api_key ? `••••${sepay_api_key.slice(-4)}` : null,
+      sepayApiKeyMasked: sepay_api_key
+        ? `••••${sepay_api_key.slice(-4)}`
+        : null,
       webhookUrl: `${base}${prefix}/webhooks/sepay/${account.tenant_id}/${account.id}`,
     };
   }
@@ -262,7 +298,11 @@ export class OwnerSettingsService {
     return accounts.map((a) => this.presentPaymentAccount(a));
   }
 
-  async createPaymentAccount(tenantId: string, dto: CreatePaymentAccountDto, actor: RequestUser) {
+  async createPaymentAccount(
+    tenantId: string,
+    dto: CreatePaymentAccountDto,
+    actor: RequestUser,
+  ) {
     // Nếu thiết lập default = true, bỏ default ở các tài khoản khác của cùng tenant
     if (dto.isDefault) {
       await this.prisma.payment_accounts.updateMany({
@@ -292,17 +332,26 @@ export class OwnerSettingsService {
       actorRole: actor.roles.join(', '),
       entityType: 'PAYMENT_ACCOUNT',
       action: 'PAYMENT_ACCOUNT_CREATED',
-      afterData: { ...account, sepay_api_key: account.sepay_api_key ? '(set)' : null },
+      afterData: {
+        ...account,
+        sepay_api_key: account.sepay_api_key ? '(set)' : null,
+      },
     });
 
     return this.presentPaymentAccount(account);
   }
 
-  async updatePaymentAccount(tenantId: string, id: string, dto: UpdatePaymentAccountDto, actor: RequestUser) {
+  async updatePaymentAccount(
+    tenantId: string,
+    id: string,
+    dto: UpdatePaymentAccountDto,
+    actor: RequestUser,
+  ) {
     const existing = await this.prisma.payment_accounts.findFirst({
       where: { id, tenant_id: tenantId },
     });
-    if (!existing) throw new NotFoundException('Không tìm thấy tài khoản thanh toán');
+    if (!existing)
+      throw new NotFoundException('Không tìm thấy tài khoản thanh toán');
 
     if (dto.isDefault) {
       await this.prisma.payment_accounts.updateMany({
@@ -314,7 +363,8 @@ export class OwnerSettingsService {
     const updated = await this.prisma.payment_accounts.update({
       where: { id },
       data: {
-        branch_id: dto.branchId !== undefined ? (dto.branchId || null) : undefined,
+        branch_id:
+          dto.branchId !== undefined ? dto.branchId || null : undefined,
         bank_code: dto.bankCode,
         bank_name: dto.bankName,
         account_number: dto.accountNumber,
@@ -322,7 +372,8 @@ export class OwnerSettingsService {
         qr_template: dto.qrTemplate,
         is_default: dto.isDefault,
         status: dto.status,
-        sepay_api_key: dto.sepayApiKey !== undefined ? dto.sepayApiKey || null : undefined,
+        sepay_api_key:
+          dto.sepayApiKey !== undefined ? dto.sepayApiKey || null : undefined,
       },
     });
 
@@ -332,7 +383,10 @@ export class OwnerSettingsService {
       actorRole: actor.roles.join(', '),
       entityType: 'PAYMENT_ACCOUNT',
       action: 'PAYMENT_ACCOUNT_UPDATED',
-      afterData: { ...updated, sepay_api_key: updated.sepay_api_key ? '(set)' : null },
+      afterData: {
+        ...updated,
+        sepay_api_key: updated.sepay_api_key ? '(set)' : null,
+      },
     });
 
     return this.presentPaymentAccount(updated);
@@ -342,7 +396,8 @@ export class OwnerSettingsService {
     const existing = await this.prisma.payment_accounts.findFirst({
       where: { id, tenant_id: tenantId },
     });
-    if (!existing) throw new NotFoundException('Không tìm thấy tài khoản thanh toán');
+    if (!existing)
+      throw new NotFoundException('Không tìm thấy tài khoản thanh toán');
 
     // Soft delete: chuyển status sang INACTIVE
     const updated = await this.prisma.payment_accounts.update({

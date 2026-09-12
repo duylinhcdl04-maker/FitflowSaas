@@ -52,14 +52,21 @@ export class AuditLogsService {
             tenant_id: query.tenantId,
             OR: [
               { actor_role: 'SUPER_ADMIN' },
-              { entity_type: { in: ['Tenant', 'SaasPlan', 'Subscription', 'SaasSubscription', 'SupportSession'] } },
+              {
+                entity_type: {
+                  in: [
+                    'Tenant',
+                    'SaasPlan',
+                    'Subscription',
+                    'SaasSubscription',
+                    'SupportSession',
+                  ],
+                },
+              },
             ],
           }
         : {
-            OR: [
-              { tenant_id: null },
-              { actor_role: 'SUPER_ADMIN' },
-            ],
+            OR: [{ tenant_id: null }, { actor_role: 'SUPER_ADMIN' }],
           }),
       ...(query.entityType ? { entity_type: query.entityType } : {}),
       ...(query.actorUserId ? { actor_user_id: query.actorUserId } : {}),
