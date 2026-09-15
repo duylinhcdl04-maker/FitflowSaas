@@ -17,6 +17,7 @@ import { logout } from '../../owner/api/auth';
 import { getCustomerProfile } from '../api/customer';
 import NotificationBell from '../../owner/components/NotificationBell';
 import ForceChangePasswordModal from './ForceChangePasswordModal';
+import { useTenant } from '../../tenant/tenant-context';
 
 const NAV_ITEMS = [
   { label: 'Trang chủ', path: '/customer', icon: House },
@@ -36,6 +37,7 @@ function getBrandInitials(name: string) {
 }
 
 export default function CustomerShell() {
+  const { redirectToDiscovery } = useTenant();
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -73,7 +75,7 @@ export default function CustomerShell() {
       await logout();
     } finally {
       clearSession();
-      navigate('/owner/login', { replace: true });
+      redirectToDiscovery('/owner/login');
     }
   }
 

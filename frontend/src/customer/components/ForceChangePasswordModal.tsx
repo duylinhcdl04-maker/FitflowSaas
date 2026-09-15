@@ -10,6 +10,7 @@ import Button from '../../owner/components/Button';
 import FormField from '../../owner/components/FormField';
 import PasswordInput from '../../owner/components/PasswordInput';
 import Callout from '../../owner/components/Callout';
+import { buildDiscoveryUrl } from '../../tenant/tenant-context';
 
 // Doc-mandated policy: forced on first login and on every staff-triggered
 // password reset (must_change_password), never again once the customer has
@@ -58,7 +59,7 @@ export default function ForceChangePasswordModal({
       await logout();
     } finally {
       clearSession();
-      window.location.href = '/owner/login';
+      window.location.href = buildDiscoveryUrl('/owner/login');
     }
   }
 

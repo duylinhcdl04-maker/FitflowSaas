@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Buildings, ChartLineUp, UsersThree, Lightning } from '@phosphor-icons/react';
 import BrandBadge from './BrandBadge';
+import { buildDiscoveryUrl } from '../../tenant/tenant-context';
 
 const HIGHLIGHTS = [
   { icon: Buildings, label: 'Quản lý đa chi nhánh trong một nơi duy nhất' },
@@ -20,7 +21,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
 
         {/* Brand Header */}
         <div className="relative flex items-center gap-3">
-          <a href="/" className="flex items-center gap-2.5 group">
+          <a href={buildDiscoveryUrl('/')} className="flex items-center gap-2.5 group">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600/30 border border-purple-500/40 text-purple-300 shadow-[0_0_20px_rgba(168,85,247,0.3)]">
               <Lightning size={20} weight="fill" />
             </span>

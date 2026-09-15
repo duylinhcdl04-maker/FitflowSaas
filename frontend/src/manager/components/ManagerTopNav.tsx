@@ -18,6 +18,7 @@ import PortalSwitcher from '../../owner/components/PortalSwitcher';
 import MobileNavDrawer from './MobileNavDrawer';
 import BranchSwitcher from './BranchSwitcher';
 import NetworkStatusBadge from '../../components/NetworkStatusBadge';
+import { useTenant } from '../../tenant/tenant-context';
 
 interface ManagerTopNavProps {
   onOpenQuickSearch: () => void;
@@ -43,6 +44,7 @@ export default function ManagerTopNav({
   branch,
 }: ManagerTopNavProps) {
   const navigate = useNavigate();
+  const { redirectToDiscovery } = useTenant();
   const clearSession = useAuthStore((s) => s.clearSession);
   const user = useAuthStore((s) => s.user);
   const { theme, toggle } = useThemeStore();
@@ -58,7 +60,7 @@ export default function ManagerTopNav({
       await logout();
     } finally {
       clearSession();
-      navigate('/owner/login', { replace: true });
+      redirectToDiscovery('/owner/login');
     }
   }
 

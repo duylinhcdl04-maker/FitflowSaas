@@ -22,6 +22,7 @@ import { getManagerContext } from '../../manager/api/manager';
 import FirstLoginPasswordModal from '../../manager/components/FirstLoginPasswordModal';
 import PortalSwitcher from '../../owner/components/PortalSwitcher';
 import BranchSwitcher from '../../manager/components/BranchSwitcher';
+import { useTenant } from '../../tenant/tenant-context';
 
 function getBrandInitials(name: string) {
   if (!name) return 'FF';
@@ -33,6 +34,7 @@ function getBrandInitials(name: string) {
 }
 
 export default function PtShell() {
+  const { redirectToDiscovery } = useTenant();
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -269,7 +271,7 @@ export default function PtShell() {
                       onClick={() => {
                         setUserMenuOpen(false);
                         clearSession();
-                        navigate('/owner/login');
+                        redirectToDiscovery('/owner/login');
                       }}
                       className="flex w-full items-center gap-2 rounded-xl px-3 py-2 font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition border-t border-slate-100 dark:border-zinc-800 pt-2"
                     >

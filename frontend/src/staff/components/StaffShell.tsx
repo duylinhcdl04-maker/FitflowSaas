@@ -28,6 +28,7 @@ import NotificationBell from '../../owner/components/NotificationBell';
 import PortalSwitcher from '../../owner/components/PortalSwitcher';
 import BranchSwitcher from '../../manager/components/BranchSwitcher';
 import NetworkStatusBadge from '../../components/NetworkStatusBadge';
+import { useTenant } from '../../tenant/tenant-context';
 
 function getBrandInitials(name: string) {
   if (!name) return 'FF';
@@ -39,6 +40,7 @@ function getBrandInitials(name: string) {
 }
 
 export default function StaffShell() {
+  const { redirectToDiscovery } = useTenant();
   const user = useAuthStore((s) => s.user);
   const clearSession = useAuthStore((s) => s.clearSession);
   const navigate = useNavigate();
@@ -127,7 +129,7 @@ export default function StaffShell() {
       await logout();
     } finally {
       clearSession();
-      navigate('/owner/login');
+      redirectToDiscovery('/owner/login');
     }
   }
 

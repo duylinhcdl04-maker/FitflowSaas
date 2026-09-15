@@ -12,6 +12,7 @@ import { useAuthStore } from '../../owner/store/auth-store';
 import { useThemeStore } from '../../store/theme-store';
 import { logout } from '../../owner/api/auth';
 import BrandBadge from '../../owner/components/BrandBadge';
+import { useTenant } from '../../tenant/tenant-context';
 
 interface MobileNavDrawerProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export default function MobileNavDrawer({
   userName = 'Branch Manager',
   brandName = 'FitFlow',
 }: MobileNavDrawerProps) {
+  const { redirectToDiscovery } = useTenant();
   const clearSession = useAuthStore((s) => s.clearSession);
   const { theme, toggle } = useThemeStore();
 
@@ -36,7 +38,7 @@ export default function MobileNavDrawer({
       await logout();
     } finally {
       clearSession();
-      window.location.href = '/owner/login';
+      redirectToDiscovery('/owner/login');
     }
   }
 

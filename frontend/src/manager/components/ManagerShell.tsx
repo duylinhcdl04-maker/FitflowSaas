@@ -21,8 +21,10 @@ import FirstLoginPasswordModal from './FirstLoginPasswordModal';
 import QuickSearchModal from './QuickSearchModal';
 import QuickActionsModals from './QuickActionsModals';
 import type { QuickActionType } from './QuickActionsModals';
+import { useTenant } from '../../tenant/tenant-context';
 
 export default function ManagerShell() {
+  const { redirectToDiscovery } = useTenant();
   const clearSession = useAuthStore((s) => s.clearSession);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
@@ -75,7 +77,7 @@ export default function ManagerShell() {
       await logout();
     } finally {
       clearSession();
-      window.location.href = '/owner/login';
+      redirectToDiscovery('/owner/login');
     }
   }
 

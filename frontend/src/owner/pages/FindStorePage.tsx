@@ -16,23 +16,34 @@ export default function FindStorePage() {
   const { redirectToTenant } = useTenant();
   const [slug, setSlug] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: () => resolveTenant(slug.trim().toLowerCase()),
     onSuccess: (tenant) => {
-      redirectToTenant(tenant.slug, '/owner/login', {
-        id: tenant.id,
-        slug: tenant.slug,
-        name: tenant.name,
-        status: tenant.status,
-      });
+      setSuccessMessage(`Đã mở cửa hàng "${tenant.name}" trong tab mới.`);
+      redirectToTenant(
+        tenant.slug,
+        '/owner/login',
+        {
+          id: tenant.id,
+          slug: tenant.slug,
+          name: tenant.name,
+          status: tenant.status,
+        },
+        true // Mở tab mới với subdomain của cửa hàng
+      );
     },
-    onError: (err) => setError(apiErrorMessage(err, 'Không tìm thấy cửa hàng với địa chỉ này')),
+    onError: (err) => {
+      setSuccessMessage(null);
+      setError(apiErrorMessage(err, 'Không tìm thấy cửa hàng với địa chỉ này'));
+    },
   });
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setSuccessMessage(null);
     mutation.mutate();
   }
 
@@ -59,6 +70,7 @@ export default function FindStorePage() {
             </span>
           </div>
           {error && <p className="text-sm text-rose-400 font-medium">{error}</p>}
+          {successMessage && <p className="text-sm text-emerald-400 font-medium">{successMessage}</p>}
           <Button type="submit" size="lg" className="w-full justify-center" disabled={mutation.isPending || !slug.trim()}>
             {mutation.isPending ? 'Đang tìm...' : 'Vào cửa hàng'}
           </Button>

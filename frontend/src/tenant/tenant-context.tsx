@@ -22,7 +22,7 @@ interface TenantContextValue {
   setTenantContext: (tenant: TenantInfo) => void;
   clearTenantContext: () => void;
   redirectToDiscovery: (path?: string) => void;
-  redirectToTenant: (slug: string, path?: string, contextData?: TenantInfo) => void;
+  redirectToTenant: (slug: string, path?: string, contextData?: TenantInfo, openNewTab?: boolean) => void;
 }
 
 const TenantContext = createContext<TenantContextValue | undefined>(undefined);
@@ -261,14 +261,22 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   );
 
   const redirectToTenant = useCallback(
-    (slug: string, path: string = '/owner/login', contextData?: TenantInfo) => {
+    (slug: string, path: string = '/owner/login', contextData?: TenantInfo, openNewTab: boolean = false) => {
       let targetUrl = buildTenantUrl(slug, path);
       if (contextData) {
         setTenantContext(contextData);
         const encoded = encodeURIComponent(JSON.stringify(contextData));
         targetUrl += `${targetUrl.includes('?') ? '&' : '?'}_tc=${encoded}`;
       }
-      window.location.href = targetUrl;
+      if (openNewTab) {
+        const newTab = window.open(targetUrl, '_blank');
+        // Nếu trình duyệt chặn popup, fallback sang chuyển hướng tab hiện tại
+        if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
+          window.location.href = targetUrl;
+        }
+      } else {
+        window.location.href = targetUrl;
+      }
     },
     [setTenantContext]
   );

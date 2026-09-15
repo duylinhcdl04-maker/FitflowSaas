@@ -10,6 +10,7 @@ import Button from '../../owner/components/Button';
 import FormField from '../../owner/components/FormField';
 import PasswordInput from '../../owner/components/PasswordInput';
 import Callout from '../../owner/components/Callout';
+import { buildDiscoveryUrl } from '../../tenant/tenant-context';
 
 interface FirstLoginPasswordModalProps {
   manualOpen?: boolean;
@@ -55,7 +56,7 @@ export default function FirstLoginPasswordModal({
       await logout();
     } finally {
       clearSession();
-      window.location.href = '/owner/login';
+      window.location.href = buildDiscoveryUrl('/owner/login');
     }
   }
 

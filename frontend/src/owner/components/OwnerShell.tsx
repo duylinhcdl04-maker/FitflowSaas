@@ -28,6 +28,7 @@ import Tooltip from './Tooltip';
 import NotificationBell from './NotificationBell';
 import PortalSwitcher from './PortalSwitcher';
 import NetworkStatusBadge from '../../components/NetworkStatusBadge';
+import { useTenant } from '../../tenant/tenant-context';
 import { showConfirm, showToast } from '../utils/swal';
 
 const NAV_LINKS = [
@@ -47,6 +48,7 @@ const OPERATIONAL_PORTALS = [
 ];
 
 export default function OwnerShell() {
+  const { redirectToDiscovery } = useTenant();
   const user = useAuthStore((s) => s.user);
   const clearSession = useAuthStore((s) => s.clearSession);
   const navigate = useNavigate();
@@ -88,7 +90,7 @@ export default function OwnerShell() {
     } finally {
       clearSession();
       showToast('Đã đăng xuất thành công', 'info');
-      navigate('/owner/login', { replace: true });
+      redirectToDiscovery('/owner/login');
     }
   }
 
