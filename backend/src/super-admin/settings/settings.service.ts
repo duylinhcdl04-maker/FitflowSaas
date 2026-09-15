@@ -94,6 +94,29 @@ export class SettingsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private bankListCache: { data: any[]; fetchedAt: number } | null = null;
+
+  /** Returns list of NAPAS banks from VietQR with 24h memory cache */
+  async listBanks(): Promise<any[]> {
+    if (
+      this.bankListCache &&
+      Date.now() - this.bankListCache.fetchedAt < 24 * 60 * 60 * 1000
+    ) {
+      return this.bankListCache.data;
+    }
+
+    try {
+      const res = await fetch('https://api.vietqr.io/v2/banks');
+      const json = await res.json();
+      const banks = (json?.data as any[]) || [];
+      this.bankListCache = { data: banks, fetchedAt: Date.now() };
+      return banks;
+    } catch {
+      if (this.bankListCache) return this.bankListCache.data;
+      return [];
+    }
+  }
+
   /** Returns public branding settings (name, logo, favicon, support links) without requiring auth. */
   async getPublicBranding() {
     const row = await this.prisma.platformSetting.findUnique({
@@ -129,6 +152,32 @@ export class SettingsService {
         value = sanitized;
       }
 
+      // Mask sensitive credentials if this is PAYMENT
+      if (key === 'PAYMENT') {
+        const base = process.env.PUBLIC_APP_URL || 'http://localhost:5000';
+        const prefix = (process.env.API_PREFIX || '/api/v1').replace(/^\/?/, '/');
+        const defaultPayment = {
+          bankCode: process.env.PLATFORM_BANK_CODE || 'TCB',
+          bankName: process.env.PLATFORM_BANK_NAME || 'Techcombank',
+          accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER || '9961708655',
+          accountName: process.env.PLATFORM_ACCOUNT_NAME || 'FITFLOW SAAS - NGUYEN DUY LINH',
+          qrTemplate: 'compact2',
+          invoiceDueDays: 3,
+          autoActivateOnPayment: true,
+          allowSimulationInDev: true,
+        };
+        const currentVal: Record<string, any> = value
+          ? { ...defaultPayment, ...value }
+          : { ...defaultPayment };
+        const rawApiKey = currentVal.sepayApiKey;
+        currentVal.sepayApiKeyMasked = rawApiKey
+          ? `••••${String(rawApiKey).slice(-4)}`
+          : null;
+        delete currentVal.sepayApiKey; // never leak raw API key
+        currentVal.webhookUrl = `${base}${prefix}/webhooks/sepay/platform`;
+        value = currentVal;
+      }
+
       result[key] = {
         value,
         updatedAt: row?.updated_at ?? null,
@@ -157,6 +206,15 @@ export class SettingsService {
 
       if (incomingTele && !incomingTele.botToken && existingTele.botToken) {
         incomingTele.botToken = existingTele.botToken;
+      }
+    }
+
+    // If updating PAYMENT and sepayApiKey is omitted/blank, preserve existing sepayApiKey
+    if (key === 'PAYMENT') {
+      const existing = (before?.setting_value as Record<string, any>) ?? {};
+      const incoming = dto.value as any;
+      if (!incoming.sepayApiKey && existing.sepayApiKey) {
+        incoming.sepayApiKey = existing.sepayApiKey;
       }
     }
 

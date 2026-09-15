@@ -6,6 +6,7 @@ export const PLATFORM_SETTING_KEYS = [
   'SECURITY',
   'TENANT_DEFAULTS',
   'NOTIFICATIONS',
+  'PAYMENT',
 ] as const;
 export type PlatformSettingKey = (typeof PLATFORM_SETTING_KEYS)[number];
 
@@ -94,12 +95,27 @@ export interface NotificationSettings {
   notifyOnSecurityAlert?: boolean;
 }
 
+export interface PlatformPaymentSettings {
+  bankCode?: string;
+  bankName?: string;
+  accountNumber?: string;
+  accountName?: string;
+  qrTemplate?: 'compact2' | 'compact' | 'qr_only';
+  sepayApiKey?: string;
+  sepayApiKeyMasked?: string | null;
+  webhookUrl?: string;
+  invoiceDueDays?: number;
+  autoActivateOnPayment?: boolean;
+  allowSimulationInDev?: boolean;
+}
+
 export interface PlatformSettings {
   BRANDING: SettingEntry<BrandingSettings>;
   DUNNING: SettingEntry<DunningSettings>;
   SECURITY: SettingEntry<SecuritySettings>;
   TENANT_DEFAULTS: SettingEntry<TenantDefaultSettings>;
   NOTIFICATIONS: SettingEntry<NotificationSettings>;
+  PAYMENT: SettingEntry<PlatformPaymentSettings>;
 }
 
 export function getPlatformSettings() {
@@ -166,3 +182,19 @@ export function toggleTelegram(isActive: boolean) {
     })
     .then((r) => r.data);
 }
+
+export interface VietQrBank {
+  id: number;
+  name: string;
+  code: string;
+  bin: string;
+  shortName: string;
+  logo: string;
+  transferSupported: number;
+  lookupSupported: number;
+}
+
+export function listPlatformBanks() {
+  return apiClient.get<VietQrBank[]>('/super-admin/settings/banks').then((res) => res.data);
+}
+

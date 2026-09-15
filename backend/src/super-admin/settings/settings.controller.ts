@@ -33,6 +33,13 @@ export class SettingsController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(ROLE.SUPER_ADMIN)
+  @Get('banks')
+  listBanks() {
+    return this.settingsService.listBanks();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(ROLE.SUPER_ADMIN)
   @Get()
   getAll() {
     return this.settingsService.getAll();

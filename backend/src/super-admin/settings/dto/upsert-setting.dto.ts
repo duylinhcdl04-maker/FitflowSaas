@@ -9,6 +9,7 @@ export const PLATFORM_SETTING_KEYS = [
   'SECURITY',
   'TENANT_DEFAULTS',
   'NOTIFICATIONS',
+  'PAYMENT',
 ] as const;
 export type PlatformSettingKey = (typeof PLATFORM_SETTING_KEYS)[number];
 

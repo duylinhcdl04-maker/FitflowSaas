@@ -214,7 +214,7 @@ export class OwnerSubscriptionService {
     if (existingIssued) {
       return {
         ...existingIssued,
-        paymentInfo: this.getPlatformPaymentInfo(existingIssued),
+        paymentInfo: await this.getPlatformPaymentInfo(existingIssued),
       };
     }
 
@@ -258,7 +258,7 @@ export class OwnerSubscriptionService {
     return {
       ...invoice,
       saas_payments: [],
-      paymentInfo: this.getPlatformPaymentInfo(invoice),
+      paymentInfo: await this.getPlatformPaymentInfo(invoice),
     };
   }
 
@@ -329,7 +329,7 @@ export class OwnerSubscriptionService {
 
     return {
       ...invoice,
-      paymentInfo: this.getPlatformPaymentInfo(invoice),
+      paymentInfo: await this.getPlatformPaymentInfo(invoice),
     };
   }
 
@@ -422,7 +422,7 @@ export class OwnerSubscriptionService {
       success: true,
       invoice: {
         ...updatedInvoice,
-        paymentInfo: this.getPlatformPaymentInfo(updatedInvoice),
+        paymentInfo: await this.getPlatformPaymentInfo(updatedInvoice),
       },
       payment,
     };
@@ -430,28 +430,50 @@ export class OwnerSubscriptionService {
 
   async listInvoices(tenantId: string) {
     const list = await this.subscriptionsService.invoices(tenantId);
-    return list.map((inv) => ({
-      ...inv,
-      paymentInfo:
-        inv.status === 'ISSUED' ? this.getPlatformPaymentInfo(inv) : null,
-    }));
+    return Promise.all(
+      list.map(async (inv) => ({
+        ...inv,
+        paymentInfo:
+          inv.status === 'ISSUED'
+            ? await this.getPlatformPaymentInfo(inv)
+            : null,
+      })),
+    );
   }
 
-  getPlatformPaymentInfo(invoice: {
+  async getPlatformPaymentInfo(invoice: {
     total_amount: any;
     invoice_no: string;
   }) {
-    const bankCode = process.env.PLATFORM_BANK_CODE || 'TCB';
-    const bankName = process.env.PLATFORM_BANK_NAME || 'Techcombank';
-    const accountNumber = process.env.PLATFORM_ACCOUNT_NUMBER || '9961708655';
+    let setting: Record<string, any> | null = null;
+    try {
+      const row = await this.prisma.platformSetting.findUnique({
+        where: { setting_key: 'PAYMENT' },
+      });
+      setting = (row?.setting_value as Record<string, any>) || null;
+    } catch {
+      // fallback to env/defaults
+    }
+
+    const bankCode =
+      setting?.bankCode || process.env.PLATFORM_BANK_CODE || 'TCB';
+    const bankName =
+      setting?.bankName || process.env.PLATFORM_BANK_NAME || 'Techcombank';
+    const accountNumber =
+      setting?.accountNumber ||
+      process.env.PLATFORM_ACCOUNT_NUMBER ||
+      '9961708655';
     const accountName =
-      process.env.PLATFORM_ACCOUNT_NAME || 'FITFLOW SAAS - NGUYEN DUY LINH';
+      setting?.accountName ||
+      process.env.PLATFORM_ACCOUNT_NAME ||
+      'FITFLOW SAAS - NGUYEN DUY LINH';
+    const qrTemplate = setting?.qrTemplate || 'compact2';
     const amount = Number(invoice.total_amount);
     const transferContent = invoice.invoice_no;
 
     // Chuẩn VietQR động định dạng NAPAS 247:
-    // https://img.vietqr.io/image/<BANK>-<ACCOUNT>-compact2.png?amount=<AMOUNT>&addInfo=<CONTENT>&accountName=<NAME>
-    const qrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNumber}-compact2.png?amount=${Math.round(amount)}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
+    // https://img.vietqr.io/image/<BANK>-<ACCOUNT>-<TEMPLATE>.png?amount=<AMOUNT>&addInfo=<CONTENT>&accountName=<NAME>
+    const qrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNumber}-${qrTemplate}.png?amount=${Math.round(amount)}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
 
     return {
       bankCode,

@@ -374,4 +374,135 @@ export class SepayWebhookService {
       );
     }
   }
+
+  /**
+   * Xử lý Webhook SePay cho tài khoản nền tảng (SaaS Platform Invoices).
+   * Tự động xác nhận hoá đơn SaaS (HD-YYYYMMDD-XXXXXX) và kích hoạt gói cho Owner.
+   */
+  async handlePlatformIpn(
+    authorizationHeader: string | undefined,
+    payload: SepayIpnPayload,
+  ) {
+    const settingRow = await this.prisma.platformSetting.findUnique({
+      where: { setting_key: 'PAYMENT' },
+    });
+    const setting = (settingRow?.setting_value as Record<string, any>) || {};
+    const configuredKey =
+      setting.sepayApiKey || process.env.PLATFORM_SEPAY_API_KEY;
+
+    if (configuredKey) {
+      const providedKey = (authorizationHeader || '')
+        .replace(/^Apikey\s+/i, '')
+        .trim();
+      if (providedKey !== configuredKey) {
+        throw new UnauthorizedException(
+          'Invalid SePay platform webhook credentials',
+        );
+      }
+    }
+
+    const providerTxnId = String(payload.id ?? '');
+    if (!providerTxnId || payload.transferType !== 'in') {
+      return { success: true };
+    }
+
+    const content = payload.content || '';
+    // Tìm mã hoá đơn HD-YYYYMMDD-XXXXXX trong nội dung chuyển khoản
+    const match = content.match(/HD-\d{8}-[A-F0-9]+/i);
+    if (!match) {
+      this.logger.warn(
+        `SePay Platform IPN: No invoice code found in content "${content}"`,
+      );
+      return { success: true };
+    }
+
+    const invoiceNo = match[0].toUpperCase();
+    const invoice = await this.prisma.saas_invoices.findUnique({
+      where: { invoice_no: invoiceNo },
+    });
+
+    if (!invoice || invoice.status === 'PAID') {
+      return { success: true };
+    }
+
+    const transferAmount = payload.transferAmount ?? 0;
+    if (transferAmount < Number(invoice.total_amount)) {
+      this.logger.warn(
+        `SePay Platform IPN: Amount ${transferAmount} less than invoice total ${invoice.total_amount}`,
+      );
+      return { success: true };
+    }
+
+    const now = new Date();
+
+    // 1. Tạo hoặc cập nhật saas_payments trạng thái PAID
+    const existingPayment = await this.prisma.saas_payments.findFirst({
+      where: { invoice_id: invoice.id, status: 'PENDING' },
+    });
+
+    if (existingPayment) {
+      await this.prisma.saas_payments.update({
+        where: { id: existingPayment.id },
+        data: {
+          status: 'PAID',
+          paid_at: now,
+          provider_ref: providerTxnId,
+        },
+      });
+    } else {
+      await this.prisma.saas_payments.create({
+        data: {
+          invoice_id: invoice.id,
+          tenant_id: invoice.tenant_id,
+          amount: invoice.total_amount,
+          currency: invoice.currency,
+          method: 'BANK_TRANSFER',
+          provider_ref: providerTxnId,
+          status: 'PAID',
+          paid_at: now,
+        },
+      });
+    }
+
+    // 2. Cập nhật hoá đơn sang PAID
+    await this.prisma.saas_invoices.update({
+      where: { id: invoice.id },
+      data: {
+        status: 'PAID',
+        paid_at: now,
+      },
+    });
+
+    // 3. Kích hoạt Subscription nếu có target_plan_id
+    if (invoice.target_plan_id) {
+      const plan = await this.prisma.saasPlan.findUnique({
+        where: { id: invoice.target_plan_id },
+      });
+      if (plan) {
+        const startDate = new Date();
+        const endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + (plan.billing_cycle_months ?? 1));
+
+        await this.prisma.subscription.update({
+          where: { id: invoice.subscription_id },
+          data: {
+            plan_id: plan.id,
+            status: 'ACTIVE',
+            start_date: startDate,
+            end_date: endDate,
+            trial_ends_at: null,
+            billing_cycle: plan.billing_cycle,
+            billing_cycle_months: plan.billing_cycle_months,
+            price: plan.price,
+            currency: plan.currency,
+          },
+        });
+      }
+    }
+
+    this.logger.log(
+      `SePay Platform IPN: Invoice ${invoiceNo} marked PAID and subscription activated!`,
+    );
+    return { success: true };
+  }
 }

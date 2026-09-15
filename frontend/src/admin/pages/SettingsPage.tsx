@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   PaintBrush,
+  CreditCard,
   CurrencyDollar,
   ShieldCheck,
   Buildings,
@@ -18,18 +19,26 @@ import {
   type SecuritySettings,
   type TenantDefaultSettings,
   type NotificationSettings,
+  type PlatformPaymentSettings,
   type PlatformSettingKey,
 } from '../api/settings';
 import { apiErrorMessage } from '../api/client';
 import Callout from '../components/Callout';
 import { Skeleton } from '../components/Skeleton';
 import BrandingTab from './settings/BrandingTab';
+import PaymentTab from './settings/PaymentTab';
 import DunningTab from './settings/DunningTab';
 import SecurityTab from './settings/SecurityTab';
 import TenantDefaultsTab from './settings/TenantDefaultsTab';
 import NotificationsTab from './settings/NotificationsTab';
 
-type SettingsTab = 'branding' | 'dunning' | 'security' | 'tenant_defaults' | 'notifications';
+type SettingsTab =
+  | 'branding'
+  | 'payment'
+  | 'dunning'
+  | 'security'
+  | 'tenant_defaults'
+  | 'notifications';
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -43,6 +52,7 @@ export default function SettingsPage() {
 
   // Local overrides per section
   const [brandingOverride, setBrandingOverride] = useState<BrandingSettings | null>(null);
+  const [paymentOverride, setPaymentOverride] = useState<PlatformPaymentSettings | null>(null);
   const [dunningOverride, setDunningOverride] = useState<DunningSettings | null>(null);
   const [securityOverride, setSecurityOverride] = useState<SecuritySettings | null>(null);
   const [tenantDefaultsOverride, setTenantDefaultsOverride] = useState<TenantDefaultSettings | null>(null);
@@ -55,6 +65,7 @@ export default function SettingsPage() {
   };
 
   const branding: BrandingSettings = brandingOverride ?? data?.BRANDING?.value ?? {};
+  const payment: PlatformPaymentSettings = paymentOverride ?? data?.PAYMENT?.value ?? {};
   const dunning: DunningSettings = dunningOverride ?? data?.DUNNING?.value ?? {};
   const security: SecuritySettings = securityOverride ?? data?.SECURITY?.value ?? {};
   const tenantDefaults: TenantDefaultSettings = tenantDefaultsOverride ?? data?.TENANT_DEFAULTS?.value ?? {};
@@ -98,6 +109,12 @@ export default function SettingsPage() {
       label: 'Thương hiệu',
       icon: PaintBrush,
       desc: 'Logo, Favicon & Tên nền tảng',
+    },
+    {
+      id: 'payment' as const,
+      label: 'Cấu hình thanh toán',
+      icon: CreditCard,
+      desc: 'Tài khoản VietQR & SePay nhận tiền SaaS',
     },
     {
       id: 'dunning' as const,
@@ -202,6 +219,17 @@ export default function SettingsPage() {
             isSaving={mutation.isPending}
             error={errors.BRANDING}
             updatedAt={data?.BRANDING?.updatedAt}
+          />
+        )}
+
+        {activeTab === 'payment' && (
+          <PaymentTab
+            data={payment}
+            onChange={setPaymentOverride}
+            onSave={() => handleSaveTab('PAYMENT', payment as Record<string, unknown>)}
+            isSaving={mutation.isPending}
+            error={errors.PAYMENT}
+            updatedAt={data?.PAYMENT?.updatedAt}
           />
         )}
 

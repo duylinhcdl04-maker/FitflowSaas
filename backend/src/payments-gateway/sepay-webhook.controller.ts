@@ -26,6 +26,15 @@ import { BypassAccessMode } from '../common/decorators/bypass-access-mode.decora
 export class SepayWebhookController {
   constructor(private readonly sepayWebhookService: SepayWebhookService) {}
 
+  @Post('platform')
+  @HttpCode(HttpStatus.OK)
+  handlePlatformIpn(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() payload: any,
+  ) {
+    return this.sepayWebhookService.handlePlatformIpn(authorization, payload);
+  }
+
   @Post(':tenantId/:paymentAccountId')
   @HttpCode(HttpStatus.OK)
   handleIpn(
