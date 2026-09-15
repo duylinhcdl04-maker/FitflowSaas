@@ -1,6 +1,15 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle } from '@phosphor-icons/react';
+import {
+  CheckCircle,
+  Warning,
+  WarningCircle,
+  ArrowUpRight,
+  QrCode,
+  Copy,
+  Check,
+  Lightning,
+} from '@phosphor-icons/react';
 import {
   getCurrentSubscription,
   getTenantUsageOverview,
@@ -8,6 +17,8 @@ import {
   listSubscriptionInvoices,
   markInvoiceTransferred,
   requestPlanInvoice,
+  getPendingInvoice,
+  simulatePaymentSuccess,
   type SubscriptionInvoice,
 } from '../../api/subscription';
 import { apiErrorMessage } from '../../api/client';
@@ -15,7 +26,6 @@ import Card from '../../components/Card';
 import Button from '../../components/Button';
 import Callout from '../../components/Callout';
 import { Skeleton } from '../../components/Skeleton';
-import { Warning, WarningCircle, ArrowUpRight } from '@phosphor-icons/react';
 
 const STATUS_LABELS: Record<string, string> = {
   TRIAL: 'Dùng thử',
@@ -51,18 +61,42 @@ export default function SubscriptionPage() {
     queryKey: ['owner-tenant-usage'],
     queryFn: getTenantUsageOverview,
   });
-  const { data: plans, isLoading: loadingPlans } = useQuery({ queryKey: ['owner-subscription-plans'], queryFn: listPublicPlans });
-  const { data: invoices } = useQuery({ queryKey: ['owner-subscription-invoices'], queryFn: listSubscriptionInvoices });
+  const { data: plans, isLoading: loadingPlans } = useQuery({
+    queryKey: ['owner-subscription-plans'],
+    queryFn: listPublicPlans,
+  });
+  const { data: invoices } = useQuery({
+    queryKey: ['owner-subscription-invoices'],
+    queryFn: listSubscriptionInvoices,
+  });
+  const { data: serverPendingInvoice } = useQuery({
+    queryKey: ['owner-subscription-pending-invoice'],
+    queryFn: getPendingInvoice,
+  });
 
   const [pendingInvoice, setPendingInvoice] = useState<SubscriptionInvoice | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const activeInvoice = pendingInvoice || serverPendingInvoice;
+
+  function handleCopy(text: string, key: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1500);
+    });
+  }
 
   const selectPlanMutation = useMutation({
     mutationFn: (planCode: string) => requestPlanInvoice(planCode),
     onSuccess: (invoice) => {
       setError(null);
+      setSuccessMsg(null);
       setPendingInvoice(invoice as unknown as SubscriptionInvoice);
       queryClient.invalidateQueries({ queryKey: ['owner-subscription-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-subscription-pending-invoice'] });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     },
     onError: (err) => setError(apiErrorMessage(err, 'Không thể tạo yêu cầu đổi gói')),
   });
@@ -70,9 +104,27 @@ export default function SubscriptionPage() {
   const confirmTransferMutation = useMutation({
     mutationFn: (invoiceId: string) => markInvoiceTransferred(invoiceId),
     onSuccess: () => {
+      setError(null);
+      setSuccessMsg('Đã ghi nhận thông tin chuyển khoản — Hệ thống đang xác nhận thanh toán.');
       queryClient.invalidateQueries({ queryKey: ['owner-subscription-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-subscription-pending-invoice'] });
     },
     onError: (err) => setError(apiErrorMessage(err, 'Không thể ghi nhận thanh toán')),
+  });
+
+  const simulatePaymentMutation = useMutation({
+    mutationFn: (invoiceId: string) => simulatePaymentSuccess(invoiceId),
+    onSuccess: () => {
+      setError(null);
+      setSuccessMsg('Thanh toán thành công! Gói dịch vụ đã được kích hoạt thành công.');
+      setPendingInvoice(null);
+      queryClient.invalidateQueries({ queryKey: ['owner-subscription'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-tenant-usage'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-subscription-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-subscription-pending-invoice'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-dashboard-shell'] });
+    },
+    onError: (err) => setError(apiErrorMessage(err, 'Không thể kích hoạt thanh toán')),
   });
 
   if (loadingCurrent || loadingPlans) {
@@ -104,10 +156,14 @@ export default function SubscriptionPage() {
               {STATUS_LABELS[current.status] ?? current.status}
             </span>
           </div>
-          {current.daysRemaining !== null && (
-            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Còn {current.daysRemaining} ngày dùng thử</p>
+          {current.daysRemaining !== null && current.status === 'TRIAL' && (
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              {current.daysRemaining > 0
+                ? `Còn ${current.daysRemaining} ngày dùng thử`
+                : 'Thời gian dùng thử đã hết hạn. Vui lòng nâng cấp gói để tiếp tục sử dụng đầy đủ tính năng.'}
+            </p>
           )}
-          {current.daysUntilRenewal !== null && (
+          {current.daysUntilRenewal !== null && current.status === 'ACTIVE' && (
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Gia hạn sau {current.daysUntilRenewal} ngày</p>
           )}
           {/* Quota Usage Metrics */}
@@ -223,50 +279,174 @@ export default function SubscriptionPage() {
       )}
 
       {error && <Callout tone="danger">{error}</Callout>}
+      {successMsg && <Callout tone="success">{successMsg}</Callout>}
 
-      {pendingInvoice && (
-        <Card className="border-emerald-200 dark:border-emerald-900">
-          <p className="font-display text-base font-semibold text-zinc-900 dark:text-zinc-50">Hoàn tất thanh toán</p>
-          <div className="mt-3 flex flex-col gap-1.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-zinc-500 dark:text-zinc-400">Số tiền</span>
-              <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-                {formatMoney(pendingInvoice.total_amount, pendingInvoice.currency)}
-              </span>
+      {/* Thẻ thanh toán VietQR dành cho hoá đơn đang chờ */}
+      {activeInvoice && activeInvoice.status === 'ISSUED' && (
+        <Card className="border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.03] via-transparent to-transparent shadow-lg dark:border-emerald-500/30">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-4 dark:border-zinc-800">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <QrCode size={24} weight="bold" />
+              </div>
+              <div>
+                <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-50">
+                  Thanh toán hoá đơn dịch vụ FitFlow
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Quét mã VietQR bằng ứng dụng Ngân hàng để chuyển khoản kích hoạt gói
+                </p>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500 dark:text-zinc-400">Nội dung chuyển khoản</span>
-              <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">{pendingInvoice.invoice_no}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500 dark:text-zinc-400">Hạn thanh toán</span>
-              <span>{formatDate(pendingInvoice.due_date)}</span>
+
+            <div className="flex items-center gap-2">
+              {activeInvoice.saas_payments?.some((p) => p.status === 'PENDING') ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                  Đã báo chuyển khoản — Chờ xác nhận
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                  Chờ thanh toán
+                </span>
+              )}
             </div>
           </div>
-          <Callout tone="info" className="mt-4">
-            Chuyển khoản theo số tiền và nội dung ở trên. Đội ngũ FitFlow sẽ xác nhận trong ít phút sau khi bạn báo đã chuyển khoản.
-          </Callout>
-          <div className="mt-4 flex gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setPendingInvoice(null)}>
-              Đóng
-            </Button>
-            <Button
-              size="sm"
-              disabled={confirmTransferMutation.isPending}
-              onClick={() => confirmTransferMutation.mutate(pendingInvoice.id)}
-            >
-              {confirmTransferMutation.isPending ? 'Đang gửi...' : 'Tôi đã chuyển khoản'}
-            </Button>
+
+          <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-12">
+            {/* Cột trái: Mã VietQR */}
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-stone-200/80 bg-white p-5 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:col-span-5">
+              <div className="relative rounded-xl border border-stone-200 bg-white p-2 shadow-inner dark:border-zinc-700">
+                <img
+                  src={
+                    activeInvoice.paymentInfo?.qrUrl ||
+                    `https://img.vietqr.io/image/TCB-9961708655-compact2.png?amount=${activeInvoice.total_amount}&addInfo=${encodeURIComponent(activeInvoice.invoice_no)}&accountName=FITFLOW%20SAAS`
+                  }
+                  alt="VietQR Chuyển khoản"
+                  className="h-56 w-56 object-contain"
+                />
+              </div>
+
+              <div className="mt-3 flex items-center justify-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                <QrCode size={16} className="text-emerald-600 dark:text-emerald-400" />
+                <span>Hỗ trợ tất cả ứng dụng Ngân hàng & Ví Napas 24/7</span>
+              </div>
+            </div>
+
+            {/* Cột phải: Chi tiết chuyển khoản & Nút sao chép */}
+            <div className="flex flex-col justify-between lg:col-span-7">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3 text-sm dark:bg-zinc-800/60">
+                  <div>
+                    <p className="text-xs text-zinc-400">Ngân hàng thụ hưởng</p>
+                    <p className="font-semibold text-zinc-900 dark:text-zinc-100">
+                      {activeInvoice.paymentInfo?.bankName || 'Techcombank'} ({activeInvoice.paymentInfo?.bankCode || 'TCB'})
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3 text-sm dark:bg-zinc-800/60">
+                  <div>
+                    <p className="text-xs text-zinc-400">Số tài khoản</p>
+                    <p className="font-mono text-base font-bold text-zinc-900 dark:text-zinc-50">
+                      {activeInvoice.paymentInfo?.accountNumber || '9961708655'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(activeInvoice.paymentInfo?.accountNumber || '9961708655', 'acc')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-700 shadow-sm transition hover:bg-stone-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                  >
+                    {copiedKey === 'acc' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                    {copiedKey === 'acc' ? 'Đã chép' : 'Sao chép'}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3 text-sm dark:bg-zinc-800/60">
+                  <div>
+                    <p className="text-xs text-zinc-400">Chủ tài khoản</p>
+                    <p className="font-medium uppercase text-zinc-900 dark:text-zinc-100">
+                      {activeInvoice.paymentInfo?.accountName || 'FITFLOW SAAS - NGUYEN DUY LINH'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50/50 p-3 text-sm dark:bg-emerald-950/20">
+                  <div>
+                    <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Số tiền cần thanh toán</p>
+                    <p className="font-display text-lg font-bold text-emerald-700 dark:text-emerald-400">
+                      {formatMoney(activeInvoice.total_amount, activeInvoice.currency)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(String(Math.round(Number(activeInvoice.total_amount))), 'amount')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-50 dark:border-emerald-800 dark:bg-zinc-800 dark:text-emerald-300 dark:hover:bg-zinc-700"
+                  >
+                    {copiedKey === 'amount' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                    {copiedKey === 'amount' ? 'Đã chép' : 'Sao chép số tiền'}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20">
+                  <div>
+                    <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                      Nội dung chuyển khoản (bắt buộc chính xác)
+                    </p>
+                    <p className="font-mono text-base font-bold text-amber-900 dark:text-amber-200">
+                      {activeInvoice.invoice_no}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(activeInvoice.invoice_no, 'des')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-900 shadow-sm transition hover:bg-amber-50 dark:border-amber-800 dark:bg-zinc-800 dark:text-amber-200 dark:hover:bg-zinc-700"
+                  >
+                    {copiedKey === 'des' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                    {copiedKey === 'des' ? 'Đã chép' : 'Sao chép nội dung'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-2.5 border-t border-stone-100 pt-4 dark:border-zinc-800">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPendingInvoice(null)}
+                >
+                  Đóng
+                </Button>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={confirmTransferMutation.isPending}
+                    onClick={() => confirmTransferMutation.mutate(activeInvoice.id)}
+                  >
+                    {confirmTransferMutation.isPending ? 'Đang gửi...' : 'Tôi đã chuyển khoản'}
+                  </Button>
+
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={simulatePaymentMutation.isPending}
+                    onClick={() => simulatePaymentMutation.mutate(activeInvoice.id)}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 flex items-center gap-1.5"
+                  >
+                    <Lightning size={16} weight="fill" />
+                    <span>{simulatePaymentMutation.isPending ? 'Đang kích hoạt...' : 'Xác nhận thanh toán ngay'}</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
-          {confirmTransferMutation.isSuccess && (
-            <Callout tone="success" className="mt-3">
-              Đã ghi nhận — đang chờ FitFlow xác nhận thanh toán.
-            </Callout>
-          )}
         </Card>
       )}
 
-      <div>
+      <div id="upgrade-plans">
         <h2 className="font-display mb-3 text-lg font-bold text-zinc-900 dark:text-zinc-50">Chọn gói</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {plans?.map((plan) => (
@@ -317,6 +497,7 @@ export default function SubscriptionPage() {
                   <th className="px-4 py-3 font-medium">Kỳ</th>
                   <th className="px-4 py-3 font-medium">Số tiền</th>
                   <th className="px-4 py-3 font-medium">Trạng thái</th>
+                  <th className="px-4 py-3 font-medium text-right">Hành động</th>
                 </tr>
               </thead>
               <tbody>
@@ -329,10 +510,24 @@ export default function SubscriptionPage() {
                     <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">{formatMoney(inv.total_amount, inv.currency)}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                        {inv.saas_payments.some((p) => p.status === 'PENDING') && inv.status === 'ISSUED'
+                        {inv.saas_payments?.some((p) => p.status === 'PENDING') && inv.status === 'ISSUED'
                           ? 'Chờ xác nhận'
                           : (INVOICE_STATUS_LABELS[inv.status] ?? inv.status)}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {inv.status === 'ISSUED' && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setPendingInvoice(inv);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                        >
+                          Thanh toán / Mã QR
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}

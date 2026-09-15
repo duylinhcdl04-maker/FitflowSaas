@@ -37,6 +37,11 @@ export class OwnerSubscriptionController {
     return this.ownerSubscriptionService.listInvoices(actor.tenantId!);
   }
 
+  @Get('invoices/pending')
+  getPendingInvoice(@CurrentUser() actor: RequestUser) {
+    return this.ownerSubscriptionService.getPendingInvoice(actor.tenantId!);
+  }
+
   @Post('invoices')
   requestPlanInvoice(
     @Body() dto: SelectPlanDto,
@@ -59,6 +64,18 @@ export class OwnerSubscriptionController {
       actor.tenantId!,
       id,
       dto,
+      actor,
+    );
+  }
+
+  @Post('invoices/:id/simulate-payment')
+  simulatePayment(
+    @Param('id') id: string,
+    @CurrentUser() actor: RequestUser,
+  ) {
+    return this.ownerSubscriptionService.simulatePaymentSuccess(
+      actor.tenantId!,
+      id,
       actor,
     );
   }

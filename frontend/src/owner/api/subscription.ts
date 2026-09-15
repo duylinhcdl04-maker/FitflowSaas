@@ -29,6 +29,16 @@ export interface PublicPlan {
   features: { code: string; name: string; quota: number | null }[];
 }
 
+export interface PaymentInfo {
+  bankCode: string;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  transferContent: string;
+  amount: number;
+  qrUrl: string;
+}
+
 export interface SubscriptionInvoice {
   id: string;
   invoice_no: string;
@@ -40,6 +50,7 @@ export interface SubscriptionInvoice {
   due_date: string;
   paid_at: string | null;
   saas_payments: { id: string; status: string; method: string; amount: string; created_at: string }[];
+  paymentInfo?: PaymentInfo | null;
 }
 
 export interface QuotaUsageItem {
@@ -101,3 +112,14 @@ export function markInvoiceTransferred(invoiceId: string) {
     .post(`/owner/subscription/invoices/${invoiceId}/mark-transferred`, { method: 'BANK_TRANSFER' })
     .then((res) => res.data);
 }
+
+export function getPendingInvoice() {
+  return apiClient.get<SubscriptionInvoice | null>('/owner/subscription/invoices/pending').then((res) => res.data);
+}
+
+export function simulatePaymentSuccess(invoiceId: string) {
+  return apiClient
+    .post<{ success: boolean; invoice: SubscriptionInvoice }>(`/owner/subscription/invoices/${invoiceId}/simulate-payment`)
+    .then((res) => res.data);
+}
+

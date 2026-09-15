@@ -197,6 +197,27 @@ export class OwnerSubscriptionService {
       );
     }
 
+    // Tái sử dụng hoá đơn ISSUED đang chờ thanh toán nếu cùng gói cước
+    const existingIssued = await this.prisma.saas_invoices.findFirst({
+      where: {
+        tenant_id: tenantId,
+        target_plan_id: plan.id,
+        status: 'ISSUED',
+        due_date: { gte: new Date() },
+      },
+      include: {
+        saas_payments: true,
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    if (existingIssued) {
+      return {
+        ...existingIssued,
+        paymentInfo: this.getPlatformPaymentInfo(existingIssued),
+      };
+    }
+
     const periodStart = new Date();
     const periodEnd = new Date(periodStart);
     periodEnd.setMonth(periodEnd.getMonth() + (plan.billing_cycle_months ?? 1));
@@ -234,7 +255,11 @@ export class OwnerSubscriptionService {
       },
     });
 
-    return invoice;
+    return {
+      ...invoice,
+      saas_payments: [],
+      paymentInfo: this.getPlatformPaymentInfo(invoice),
+    };
   }
 
   /** OW-08 bước 2 — Owner tự khai đã chuyển khoản; chờ SuperAdmin xác nhận (SA-10). */
@@ -288,8 +313,155 @@ export class OwnerSubscriptionService {
     return payment;
   }
 
-  listInvoices(tenantId: string) {
-    return this.subscriptionsService.invoices(tenantId);
+  async getPendingInvoice(tenantId: string) {
+    const invoice = await this.prisma.saas_invoices.findFirst({
+      where: {
+        tenant_id: tenantId,
+        status: 'ISSUED',
+      },
+      include: {
+        saas_payments: true,
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    if (!invoice) return null;
+
+    return {
+      ...invoice,
+      paymentInfo: this.getPlatformPaymentInfo(invoice),
+    };
+  }
+
+  /**
+   * Xác nhận thanh toán thành công và kích hoạt ngay Subscription lên gói cước đã chọn.
+   * Dùng cho mô phỏng / kích hoạt nhanh trong môi trường phát triển & thử nghiệm của Owner.
+   */
+  async simulatePaymentSuccess(
+    tenantId: string,
+    invoiceId: string,
+    actor: RequestUser,
+  ) {
+    const invoice = await this.prisma.saas_invoices.findFirst({
+      where: { id: invoiceId, tenant_id: tenantId },
+    });
+    if (!invoice) throw new NotFoundException('Không tìm thấy hoá đơn');
+    if (invoice.status === 'PAID') {
+      return { success: true, message: 'Hoá đơn đã được thanh toán trước đó' };
+    }
+    if (invoice.status === 'VOID') {
+      throw new BadRequestException('Hoá đơn đã bị huỷ');
+    }
+
+    const now = new Date();
+
+    // 1. Tạo hoặc cập nhật saas_payments trạng thái PAID
+    let payment = await this.prisma.saas_payments.findFirst({
+      where: { invoice_id: invoiceId, status: 'PENDING' },
+    });
+
+    if (payment) {
+      payment = await this.prisma.saas_payments.update({
+        where: { id: payment.id },
+        data: {
+          status: 'PAID',
+          paid_at: now,
+          recorded_by: actor.id,
+        },
+      });
+    } else {
+      payment = await this.prisma.saas_payments.create({
+        data: {
+          invoice_id: invoiceId,
+          tenant_id: tenantId,
+          amount: invoice.total_amount,
+          currency: invoice.currency,
+          method: 'BANK_TRANSFER',
+          status: 'PAID',
+          paid_at: now,
+          recorded_by: actor.id,
+        },
+      });
+    }
+
+    // 2. Cập nhật trạng thái hoá đơn thành PAID
+    const updatedInvoice = await this.prisma.saas_invoices.update({
+      where: { id: invoiceId },
+      data: {
+        status: 'PAID',
+        paid_at: now,
+      },
+      include: {
+        saas_payments: true,
+      },
+    });
+
+    // 3. Kích hoạt Subscription nếu có target_plan_id
+    if (invoice.target_plan_id) {
+      await this.subscriptionsService.activateForInvoice(
+        invoice.subscription_id,
+        invoice.target_plan_id,
+        actor,
+      );
+    }
+
+    await writeAuditLog(this.prisma, {
+      tenantId,
+      actorUserId: actor.id,
+      actorRole: actor.roles.join(', '),
+      entityType: 'SAAS_INVOICE',
+      entityId: invoiceId,
+      action: 'OWNER_PAYMENT_SIMULATED_SUCCESS',
+      afterData: {
+        status: 'PAID',
+        amount: invoice.total_amount.toString(),
+      },
+    });
+
+    return {
+      success: true,
+      invoice: {
+        ...updatedInvoice,
+        paymentInfo: this.getPlatformPaymentInfo(updatedInvoice),
+      },
+      payment,
+    };
+  }
+
+  async listInvoices(tenantId: string) {
+    const list = await this.subscriptionsService.invoices(tenantId);
+    return list.map((inv) => ({
+      ...inv,
+      paymentInfo:
+        inv.status === 'ISSUED' ? this.getPlatformPaymentInfo(inv) : null,
+    }));
+  }
+
+  getPlatformPaymentInfo(invoice: {
+    total_amount: any;
+    invoice_no: string;
+  }) {
+    const bankCode = process.env.PLATFORM_BANK_CODE || 'TCB';
+    const bankName = process.env.PLATFORM_BANK_NAME || 'Techcombank';
+    const accountNumber = process.env.PLATFORM_ACCOUNT_NUMBER || '9961708655';
+    const accountName =
+      process.env.PLATFORM_ACCOUNT_NAME || 'FITFLOW SAAS - NGUYEN DUY LINH';
+    const amount = Number(invoice.total_amount);
+    const transferContent = invoice.invoice_no;
+
+    // Chuẩn VietQR động định dạng NAPAS 247:
+    // https://img.vietqr.io/image/<BANK>-<ACCOUNT>-compact2.png?amount=<AMOUNT>&addInfo=<CONTENT>&accountName=<NAME>
+    const qrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNumber}-compact2.png?amount=${Math.round(amount)}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
+
+    return {
+      bankCode,
+      bankName,
+      accountNumber,
+      accountName,
+      transferContent,
+      amount,
+      qrUrl,
+    };
   }
 
   private generateInvoiceNo() {
