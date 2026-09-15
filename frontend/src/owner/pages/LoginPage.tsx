@@ -34,7 +34,7 @@ export default function LoginPage() {
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
 
   // Nếu tenant trong context đã có dữ liệu trùng slug, ưu tiên dùng
-  const activeTenantName = tenant?.slug === slug ? tenant.name : null;
+  const activeTenantName = slug && tenant?.slug === slug ? tenant.name : null;
 
   const tenantQuery = useQuery({
     queryKey: ['lookup-tenant', slug],
