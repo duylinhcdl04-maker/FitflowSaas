@@ -137,9 +137,63 @@ export class MailService {
   }
 
   /**
-   * Phương thức gửi email an toàn, hỗ trợ tự động fallback sang cổng 465 (SSL)
-   * nếu cổng 587 (STARTTLS) bị nhà mạng / hạ tầng cloud (Railway, AWS) chặn.
-   * Đồng thời luôn ép kết nối qua IPv4 để triệt tiêu lỗi ENETUNREACH.
+   * Gửi email qua Resend REST API (Cổng 443 HTTPS).
+   * Chuẩn tối ưu nhất cho cloud (Railway, Render, Vercel, Docker)
+   * vì không bao giờ bị nhà mạng/cloud chặn cổng như SMTP 587/465.
+   */
+  private async deliverViaResend(
+    to: string,
+    subject: string,
+    html: string,
+  ): Promise<boolean> {
+    const apiKey = process.env.RESEND_API_KEY?.trim();
+    if (!apiKey) return false;
+
+    const from =
+      process.env.RESEND_FROM?.trim() ||
+      process.env.SMTP_FROM?.trim() ||
+      'FitFlow <onboarding@resend.dev>';
+
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to: [to],
+          subject,
+          html,
+        }),
+      });
+
+      const data = (await response.json()) as any;
+      if (response.ok && data?.id) {
+        this.logger.log(
+          `[RESEND SUCCESS] Đã gửi email thành công tới ${to} (id: ${data.id}) | ${subject}`,
+        );
+        return true;
+      }
+
+      this.logger.error(
+        `[RESEND ERROR] Gửi thư tới ${to} thất bại (HTTP ${response.status}): ${JSON.stringify(data)}`,
+      );
+      return false;
+    } catch (err) {
+      this.logger.error(
+        `[RESEND NETWORK ERROR] Không thể kết nối tới Resend API: ${(err as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Phương thức gửi email an toàn:
+   * 1. Ưu tiên gửi qua Resend HTTPS API (cổng 443 - không bị chặn trên Railway / Cloud).
+   * 2. Fallback sang SMTP (port 587 / port 465) nếu không có Resend hoặc Resend lỗi.
+   * 3. Ghi log OTP backup trong trường hợp khẩn cấp để không làm gián đoạn người dùng.
    */
   private async deliverEmail(
     to: string,
@@ -147,6 +201,16 @@ export class MailService {
     html: string,
     devCodeFallback?: string,
   ): Promise<boolean> {
+    // 1. Ưu tiên Resend nếu có cấu hình RESEND_API_KEY
+    if (process.env.RESEND_API_KEY?.trim()) {
+      const resendSuccess = await this.deliverViaResend(to, subject, html);
+      if (resendSuccess) return true;
+      this.logger.warn(
+        `[EMAIL FALLBACK] Resend không thành công, thử chuyển sang SMTP...`,
+      );
+    }
+
+    // 2. Gửi qua SMTP
     const rawFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
     const from =
       rawFrom && rawFrom.includes('@')
@@ -155,8 +219,8 @@ export class MailService {
 
     const transporter = await this.createTransporter();
     if (!transporter) {
-      if (process.env.NODE_ENV !== 'production' && devCodeFallback) {
-        this.logger.warn(`[DEV] Mã OTP cho ${to}: ${devCodeFallback}`);
+      if (devCodeFallback) {
+        this.logger.warn(`[OTP BACKUP] Mã xác thực/mật khẩu cho ${to}: ${devCodeFallback}`);
       }
       return false;
     }
@@ -208,8 +272,8 @@ export class MailService {
         }
       }
 
-      if (process.env.NODE_ENV !== 'production' && devCodeFallback) {
-        this.logger.warn(`[DEV] Mã OTP cho ${to}: ${devCodeFallback}`);
+      if (devCodeFallback) {
+        this.logger.warn(`[OTP BACKUP] Mã xác thực/mật khẩu cho ${to}: ${devCodeFallback}`);
       }
       return false;
     }
