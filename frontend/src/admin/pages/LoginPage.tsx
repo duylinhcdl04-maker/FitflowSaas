@@ -39,7 +39,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await login(email, password);
-      setSession(res.accessToken, res.user);
+      setSession(res.accessToken, res.user, res.refreshToken);
       navigate(isAdmin ? '/' : '/admin', { replace: true });
     } catch (err) {
       setError(apiErrorMessage(err, 'Đăng nhập quản trị thất bại. Vui lòng kiểm tra lại thông tin.'));

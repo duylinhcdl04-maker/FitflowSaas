@@ -28,8 +28,11 @@ export function useBootstrapAuth() {
           }
         } catch {
           try {
-            const { accessToken } = await refresh();
+            const { accessToken, refreshToken: newRefreshToken } = await refresh();
             useAuthStore.getState().setAccessToken(accessToken);
+            if (newRefreshToken) {
+              useAuthStore.getState().setRefreshToken(newRefreshToken);
+            }
             const me = await fetchMe();
             if (!cancelled) {
               setSession(accessToken, {
@@ -37,7 +40,7 @@ export function useBootstrapAuth() {
                 email: me.email,
                 fullName: me.fullName,
                 roles: me.roles,
-              });
+              }, newRefreshToken);
             }
           } catch {
             if (!cancelled) clearSession();
@@ -47,8 +50,11 @@ export function useBootstrapAuth() {
       }
 
       try {
-        const { accessToken } = await refresh();
+        const { accessToken, refreshToken: newRefreshToken } = await refresh();
         useAuthStore.getState().setAccessToken(accessToken);
+        if (newRefreshToken) {
+          useAuthStore.getState().setRefreshToken(newRefreshToken);
+        }
         const me = await fetchMe();
         if (!cancelled) {
           setSession(accessToken, {
@@ -56,7 +62,7 @@ export function useBootstrapAuth() {
             email: me.email,
             fullName: me.fullName,
             roles: me.roles,
-          });
+          }, newRefreshToken);
         }
       } catch {
         if (!cancelled) clearSession();

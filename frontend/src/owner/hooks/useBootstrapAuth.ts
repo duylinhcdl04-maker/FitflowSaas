@@ -31,8 +31,11 @@ export function useBootstrapAuth() {
         } catch {
           // Token in localStorage might be expired, try refreshing
           try {
-            const { accessToken } = await refresh();
+            const { accessToken, refreshToken: newRefreshToken } = await refresh();
             useAuthStore.getState().setAccessToken(accessToken);
+            if (newRefreshToken) {
+              useAuthStore.getState().setRefreshToken(newRefreshToken);
+            }
             const me = await fetchMe();
             if (!cancelled) {
               setSession(accessToken, {
@@ -42,7 +45,7 @@ export function useBootstrapAuth() {
                 roles: me.roles,
                 tenantId: me.tenantId,
                 mustChangePassword: me.mustChangePassword,
-              });
+              }, newRefreshToken);
             }
           } catch {
             if (!cancelled) clearSession();
@@ -52,8 +55,11 @@ export function useBootstrapAuth() {
       }
 
       try {
-        const { accessToken } = await refresh();
+        const { accessToken, refreshToken: newRefreshToken } = await refresh();
         useAuthStore.getState().setAccessToken(accessToken);
+        if (newRefreshToken) {
+          useAuthStore.getState().setRefreshToken(newRefreshToken);
+        }
         const me = await fetchMe();
         if (!cancelled) {
           setSession(accessToken, {
@@ -63,7 +69,7 @@ export function useBootstrapAuth() {
             roles: me.roles,
             tenantId: me.tenantId,
             mustChangePassword: me.mustChangePassword,
-          });
+          }, newRefreshToken);
         }
       } catch {
         if (!cancelled) clearSession();
@@ -81,8 +87,11 @@ export function useBootstrapAuth() {
 }
 
 /** Sau login/verify-otp: đã có accessToken nhưng response chưa có tenantId — gọi /auth/me để lấy đủ. */
-export async function establishSession(accessToken: string) {
+export async function establishSession(accessToken: string, refreshToken?: string | null) {
   useAuthStore.getState().setAccessToken(accessToken);
+  if (refreshToken) {
+    useAuthStore.getState().setRefreshToken(refreshToken);
+  }
   const me = await fetchMe();
   useAuthStore.getState().setSession(accessToken, {
     id: me.id,
@@ -91,6 +100,6 @@ export async function establishSession(accessToken: string) {
     roles: me.roles,
     tenantId: me.tenantId,
     mustChangePassword: me.mustChangePassword,
-  });
+  }, refreshToken);
   return me;
 }

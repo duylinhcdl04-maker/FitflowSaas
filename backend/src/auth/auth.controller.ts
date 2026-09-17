@@ -40,7 +40,7 @@ export class AuthController {
       req.tenant?.id,
     );
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken, user };
+    return { accessToken, refreshToken, user };
   }
 
   @Post('refresh')
@@ -48,19 +48,24 @@ export class AuthController {
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
+    @Body() body?: { refreshToken?: string },
   ) {
-    const token = req.cookies?.[REFRESH_COOKIE];
+    const token = req.cookies?.[REFRESH_COOKIE] || body?.refreshToken;
     if (!token) throw new UnauthorizedException('Thiếu phiên đăng nhập');
 
     const { accessToken, refreshToken } = await this.authService.refresh(token);
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    return { accessToken, refreshToken };
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
+    const rawDomain = process.env.COOKIE_DOMAIN?.trim();
+    const isLocalhost = !rawDomain || rawDomain === 'localhost' || rawDomain.endsWith('localhost');
+    const domain = isLocalhost ? undefined : rawDomain;
+
+    res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth', domain });
     return { success: true };
   }
 
@@ -71,10 +76,14 @@ export class AuthController {
   }
 
   private setRefreshCookie(res: Response, token: string) {
+    const rawDomain = process.env.COOKIE_DOMAIN?.trim();
+    const isLocalhost = !rawDomain || rawDomain === 'localhost' || rawDomain.endsWith('localhost');
+    const domain = isLocalhost ? undefined : rawDomain;
+
     res.cookie(REFRESH_COOKIE, token, {
       httpOnly: true,
       secure: process.env.COOKIE_SECURE === 'true',
-      domain: process.env.COOKIE_DOMAIN || undefined,
+      domain,
       sameSite: 'lax',
       path: '/api/v1/auth',
       maxAge: 7 * 24 * 60 * 60 * 1000,

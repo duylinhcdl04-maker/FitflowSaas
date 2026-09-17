@@ -39,7 +39,7 @@ export default function VerifyOtpPage() {
   const verifyMutation = useMutation({
     mutationFn: (code: string) => verifyOtp(state!.userId, code),
     onSuccess: async (data) => {
-      await establishSession(data.accessToken);
+      await establishSession(data.accessToken, data.refreshToken);
       navigate('/owner/welcome', {
         replace: true,
         state: {

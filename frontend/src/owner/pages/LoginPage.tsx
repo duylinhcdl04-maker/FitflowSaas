@@ -48,7 +48,7 @@ export default function LoginPage() {
   const mutation = useMutation({
     mutationFn: () => login(email, password),
     onSuccess: async (data) => {
-      const me = await establishSession(data.accessToken);
+      const me = await establishSession(data.accessToken, data.refreshToken);
       if (me.roles.includes('CUSTOMER') && me.roles.length === 1) {
         navigate('/customer', { replace: true });
       } else if (me.roles.includes('STAFF') && !me.roles.includes('OWNER') && !me.roles.includes('BRANCH_MANAGER')) {

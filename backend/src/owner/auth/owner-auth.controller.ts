@@ -6,8 +6,10 @@ import {
   HttpStatus,
   Param,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { OwnerAuthService } from './owner-auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
@@ -61,8 +63,26 @@ export class OwnerAuthController {
 
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
-  verify(@Body() dto: VerifyOtpDto) {
-    return this.ownerAuthService.verify(dto);
+  async verify(
+    @Body() dto: VerifyOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.ownerAuthService.verify(dto);
+    if (result && 'refreshToken' in result && result.refreshToken) {
+      const rawDomain = process.env.COOKIE_DOMAIN?.trim();
+      const isLocalhost = !rawDomain || rawDomain === 'localhost' || rawDomain.endsWith('localhost');
+      const domain = isLocalhost ? undefined : rawDomain;
+
+      res.cookie('fitflow_refresh_token', result.refreshToken as string, {
+        httpOnly: true,
+        secure: process.env.COOKIE_SECURE === 'true',
+        domain,
+        sameSite: 'lax',
+        path: '/api/v1/auth',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+    return result;
   }
 
   @Post('forgot-password')

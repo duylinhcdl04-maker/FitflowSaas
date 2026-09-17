@@ -1,9 +1,11 @@
 import { apiClient } from './client';
+import { useAuthStore } from '../store/auth-store';
 
 // Khớp đúng response thật của backend (AuthService.issueSessionForUser/login)
 // — KHÔNG có tenantId ở đây; phải gọi fetchMe() riêng để lấy tenantId.
 export interface SessionResponse {
   accessToken: string;
+  refreshToken?: string;
   user: { id: string; email: string; fullName: string; roles: string[]; mustChangePassword?: boolean };
 }
 
@@ -17,8 +19,11 @@ export function fetchMe() {
     .then((res) => res.data);
 }
 
-export function refresh() {
-  return apiClient.post<{ accessToken: string }>('/auth/refresh').then((res) => res.data);
+export function refresh(refreshToken?: string | null) {
+  const token = refreshToken ?? useAuthStore.getState().refreshToken;
+  return apiClient
+    .post<{ accessToken: string; refreshToken?: string }>('/auth/refresh', { refreshToken: token || undefined })
+    .then((res) => res.data);
 }
 
 export function logout() {
