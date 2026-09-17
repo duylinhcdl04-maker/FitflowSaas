@@ -79,12 +79,14 @@ export class AuthController {
     const rawDomain = process.env.COOKIE_DOMAIN?.trim();
     const isLocalhost = !rawDomain || rawDomain === 'localhost' || rawDomain.endsWith('localhost');
     const domain = isLocalhost ? undefined : rawDomain;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const secure = process.env.COOKIE_SECURE === 'true' || isProduction;
 
     res.cookie(REFRESH_COOKIE, token, {
       httpOnly: true,
-      secure: process.env.COOKIE_SECURE === 'true',
+      secure,
       domain,
-      sameSite: 'lax',
+      sameSite: isProduction ? 'none' : 'lax',
       path: '/api/v1/auth',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });

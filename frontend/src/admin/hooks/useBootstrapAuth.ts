@@ -49,8 +49,14 @@ export function useBootstrapAuth() {
         return;
       }
 
+      const existingRefreshToken = useAuthStore.getState().refreshToken;
+      if (!existingRefreshToken) {
+        if (!cancelled) setHydrating(false);
+        return;
+      }
+
       try {
-        const { accessToken, refreshToken: newRefreshToken } = await refresh();
+        const { accessToken, refreshToken: newRefreshToken } = await refresh(existingRefreshToken);
         useAuthStore.getState().setAccessToken(accessToken);
         if (newRefreshToken) {
           useAuthStore.getState().setRefreshToken(newRefreshToken);
